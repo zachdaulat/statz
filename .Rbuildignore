@@ -1,0 +1,29 @@
+# Project & IDE files
+^statz\.Rproj$
+^\.Rproj\.user$
+^\.vscode$
+^\.positron$
+^\.idea$
+
+# Licence full text (DESCRIPTION has the licence declaration)
+^LICENSE\.md$
+
+# GitHub-specific files
+^\.github$
+
+# pkgdown configuration and output
+^_pkgdown\.yml$
+^docs$
+
+# Vignette cache
+^vignettes/.*_cache$
+
+# README source (the rendered README.md is included, not the .Rmd source)
+^README\.Rmd$
+
+# Rust/extendr build artefacts and configuration
+^src/\.cargo$
+^src/rust/vendor$
+^src/rust/target$
+^src/Makevars$
+^src/Makevars\.win$
