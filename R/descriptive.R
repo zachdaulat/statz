@@ -13,7 +13,7 @@
 #' z_mean(x)
 #' mean(x)
 #'
-#' z_variance(x)
+#' z_var(x)
 #' var(x)
 #'
 #' z_sd(x)

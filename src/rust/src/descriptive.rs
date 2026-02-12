@@ -46,15 +46,13 @@ pub fn z_median(x: &[f64]) -> f64 {
 /// @return The sample variance as a double.
 /// @export
 #[extendr]
-pub fn z_variance(x: &[f64]) -> f64 {
+pub fn z_var(x: &[f64]) -> f64 {
     if x.len() < 2 {
         return f64::NAN;
     }
     let mean = z_mean(x);
     let n = x.len() as f64;
-    x.iter()
-        .map(|&xi| (xi - mean).powi(2))
-        .sum::<f64>() / (n - 1.0)
+    x.iter().map(|&xi| (xi - mean).powi(2)).sum::<f64>() / (n - 1.0)
 }
 
 /// Compute the sample standard deviation of a numeric vector.
@@ -63,7 +61,7 @@ pub fn z_variance(x: &[f64]) -> f64 {
 /// @export
 #[extendr]
 pub fn z_sd(x: &[f64]) -> f64 {
-    z_variance(x).sqrt()
+    z_var(x).sqrt()
 }
 
 /// Compute the sample covariance of two numeric vectors.
@@ -72,7 +70,7 @@ pub fn z_sd(x: &[f64]) -> f64 {
 /// @return The sample covariance as a double.
 /// @export
 #[extendr]
-pub fn z_covariance(x: &[f64], y: &[f64]) -> f64 {
+pub fn z_cov(x: &[f64], y: &[f64]) -> f64 {
     if x.len() != y.len() || x.len() < 2 {
         return f64::NAN;
     }
@@ -84,17 +82,64 @@ pub fn z_covariance(x: &[f64], y: &[f64]) -> f64 {
         .map(|(&xi, &yi)| (xi - mean_x) * (yi - mean_y))
         .sum::<f64>()
         / (n - 1.0)
- }
+}
 
- // Registering this module's functions
+/// Compute the Pearson correlation coefficient of two numeric vectors.
+/// @param x A numeric vector.
+/// @param y A numeric vector.
+/// @return The sample correlation as a double
+/// @export
+#[extendr]
+pub fn z_cor(x: &[f64], y: &[f64]) -> f64 {
+    if x.len() != y.len() || x.len() < 2 {
+        return f64::NAN;
+    }
+    z_cov(x, y) / (z_sd(x) * z_sd(y))
+}
+
+/// Compute Pearson correlation coefficient, optimized single-pass
+/// @param x A numeric vector.
+/// @param y A numeric vector.
+/// @return The sample correlation as a double
+/// @export
+#[extendr]
+pub fn z_cor_onepass(x: &[f64], y: &[f64]) -> f64 {
+    if x.len() != y.len() || x.len() < 2 {
+        return f64::NAN;
+    }
+
+    let n = x.len() as f64;
+    let mut sum_x = 0.0;
+    let mut sum_y = 0.0;
+    let mut sum_xy = 0.0;
+    let mut sum_x2 = 0.0;
+    let mut sum_y2 = 0.0;
+
+    for (&xi, &yi) in x.iter().zip(y.iter()) {
+        sum_x += xi;
+        sum_y += yi;
+        sum_xy += xi * yi;
+        sum_x2 += xi * xi;
+        sum_y2 += yi * yi;
+    }
+
+    let numer = sum_xy - (sum_x * sum_y / n);
+    let denom = ((sum_x2 - (sum_x.powi(2) / n)) * (sum_y2 - (sum_y.powi(2) / n))).sqrt();
+
+    numer / denom
+}
+
+// Registering this module's functions
 extendr_module! {
     mod descriptive;
     fn z_sum;
     fn z_mean;
     fn z_median;
-    fn z_variance;
+    fn z_var;
     fn z_sd;
-    fn z_covariance;
+    fn z_cov;
+    fn z_cor;
+    fn z_cor_onepass;
 }
 
 // Rust-side unit tests
@@ -128,33 +173,37 @@ mod tests {
     fn test_variance() {
         // var(c(2, 4, 4, 4, 5, 5, 7, 9)) in R = 4.571429
         let x = vec![2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0];
-        assert!((z_variance(&x) - 4.571428571428571).abs() < 1e-10);
+        assert!((z_var(&x) - 4.571428571428571).abs() < 1e-10);
     }
 
     #[test]
     fn test_covariance_identical() {
         // cov(x, x) should equal var(x)
         let x = vec![2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0];
-        assert!((z_covariance(&x, &x) - z_variance(&x)).abs() < 1e-10);
+        assert!((z_cov(&x, &x) - z_var(&x)).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_cor_perfect_positive() {
+        // cor(x, x) = 1.0
+        let x = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        assert!((z_cor(&x, &x) - 1.0).abs() < 1e-10);
+        assert!((z_cor_onepass(&x, &x) - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_cor_perfect_negative() {
+        let x = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let y = vec![5.0, 4.0, 3.0, 2.0, 1.0];
+        assert!((z_cor(&x, &y) - (-1.0)).abs() < 1e-10);
+        assert!((z_cor_onepass(&x, &y) - (-1.0)).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_cor_implementations_agree() {
+        // Both implementations should produce the same result
+        let x = vec![2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0];
+        let y = vec![1.0, 3.0, 5.0, 2.0, 7.0, 6.0, 8.0, 4.0];
+        assert!((z_cor(&x, &y) - z_cor_onepass(&x, &y)).abs() < 1e-10);
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

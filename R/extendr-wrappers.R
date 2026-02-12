@@ -32,7 +32,7 @@ z_median <- function(x) .Call(wrap__z_median, x)
 #' @param x A numeric vector.
 #' @return The sample variance as a double.
 #' @export
-z_variance <- function(x) .Call(wrap__z_variance, x)
+z_var <- function(x) .Call(wrap__z_var, x)
 
 #' Compute the sample standard deviation of a numeric vector.
 #' @param x A numeric vector.
@@ -45,7 +45,21 @@ z_sd <- function(x) .Call(wrap__z_sd, x)
 #' @param y A numeric vector of the same length.
 #' @return The sample covariance as a double.
 #' @export
-z_covariance <- function(x, y) .Call(wrap__z_covariance, x, y)
+z_cov <- function(x, y) .Call(wrap__z_cov, x, y)
+
+#' Compute the Pearson correlation coefficient of two numeric vectors.
+#' @param x A numeric vector.
+#' @param y A numeric vector.
+#' @return The sample correlation as a double
+#' @export
+z_cor <- function(x, y) .Call(wrap__z_cor, x, y)
+
+#' Compute Pearson correlation coefficient, optimized single-pass
+#' @param x A numeric vector.
+#' @param y A numeric vector.
+#' @return The sample correlation as a double
+#' @export
+z_cor_onepass <- function(x, y) .Call(wrap__z_cor_onepass, x, y)
 
 
 # nolint end
