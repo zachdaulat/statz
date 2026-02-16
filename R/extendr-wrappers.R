@@ -61,5 +61,22 @@ z_cor <- function(x, y) .Call(wrap__z_cor, x, y)
 #' @export
 z_cor_onepass <- function(x, y) .Call(wrap__z_cor_onepass, x, y)
 
+#' Compute the normal probability density function (PDF)
+#' @param x A single numeric value at which to evaluate the density
+#' @param mean The mean of the normal distribution (μ)
+#' @param sd The standard deviation of the normal distribution (σ > 0)
+#' @return The probability density f(x | μ, σ)
+#' @export
+z_dnorm_rs <- function(x, mean, sd) .Call(wrap__z_dnorm_rs, x, mean, sd)
+
+#' Compute the standard normal cumulative distribution function (CDF)
+#' using the Abramowitz and Stegun (1972, 10th ed.) equation 7.1.26
+#' error function approximation.
+#' Maximum absolute error: |ε| < 1.5 × 10⁻⁷
+#' @param z A z-score (standardised value)
+#' @return Cumulative probability Φ(z) = P(Z ≤ z) for Z ~ N(0,1)
+#' @export
+z_pnorm_std <- function(z) .Call(wrap__z_pnorm_std, z)
+
 
 # nolint end

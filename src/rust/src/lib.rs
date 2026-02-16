@@ -2,7 +2,7 @@ use extendr_api::prelude::*;
 
 // Module declarations
 mod descriptive;
-// mod distributions;
+mod distributions;
 // Future modules
 // mod regression;
 // mod spatial;
@@ -13,4 +13,5 @@ mod descriptive;
 extendr_module! {
     mod statz;
     use descriptive;
+    use distributions;
 }
