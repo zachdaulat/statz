@@ -78,5 +78,11 @@ z_dnorm_rs <- function(x, mean, sd) .Call(wrap__z_dnorm_rs, x, mean, sd)
 #' @export
 z_pnorm_std <- function(z) .Call(wrap__z_pnorm_std, z)
 
+z_dpois_rs <- function(x, lambda) .Call(wrap__z_dpois_rs, x, lambda)
+
+z_ppois_di <- function(x, lambda) .Call(wrap__z_ppois_di, x, lambda)
+
+z_ppois_rec <- function(x, lambda) .Call(wrap__z_ppois_rec, x, lambda)
+
 
 # nolint end
