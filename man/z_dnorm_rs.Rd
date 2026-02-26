@@ -4,7 +4,7 @@
 \alias{z_dnorm_rs}
 \title{Compute the normal probability density function (PDF)}
 \usage{
-z_dnorm_rs(x, mean, sd)
+z_dnorm_rs(x, mean, sd, log)
 }
 \arguments{
 \item{x}{A single numeric value at which to evaluate the density}

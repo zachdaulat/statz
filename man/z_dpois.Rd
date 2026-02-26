@@ -4,7 +4,7 @@
 \alias{z_dpois}
 \title{Poisson distribution probability mass function}
 \usage{
-z_dpois(x, lambda)
+z_dpois(x, lambda, log = FALSE)
 }
 \arguments{
 \item{x}{A non-negative whole number}

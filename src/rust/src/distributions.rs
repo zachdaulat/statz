@@ -1,9 +1,18 @@
 use extendr_api::prelude::*;
+use statrs::consts::{LN_PI, LN_SQRT_2PI};
 use std::f64::consts::{PI, SQRT_2};
 
-// Placeholder module for probability distribution functions.
-// I will implement these as I progress through my statistics learning.
-//
+extendr_module! {
+    mod distributions;
+    fn z_dnorm_rs;
+    fn z_pnorm_std;
+    fn z_dpois_rs;
+    fn z_ppois_di;
+    fn z_ppois_rec;
+    fn z_lgamma;
+    fn z_dgamma_rs;
+}
+
 // Planned functions:
 // - dnorm, pnorm         (normal distribution)
 // - dpois, ppois         (Poisson distribution)
@@ -17,9 +26,15 @@ use std::f64::consts::{PI, SQRT_2};
 /// @return The probability density f(x | μ, σ)
 /// @export
 #[extendr]
-pub fn z_dnorm_rs(x: f64, mean: f64, sd: f64) -> f64 {
+pub fn z_dnorm_rs(x: f64, mean: f64, sd: f64, log: bool) -> f64 {
     let z = (x - mean) / sd;
-    (1.0 / (sd * (2.0 * PI).sqrt())) * (-0.5 * z * z).exp()
+    let pdf = -sd.ln() - LN_SQRT_2PI - (0.5 * z * z);
+
+    if log {
+        pdf
+    } else {
+        pdf.exp()
+    }
 }
 
 /// Compute the standard normal cumulative distribution function (CDF)
@@ -77,14 +92,18 @@ pub fn z_pnorm_std(z: f64) -> f64 {
 /// @return The probability mass P(X = x | λ)
 /// @export
 #[extendr]
-pub fn z_dpois_rs(x: i32, lambda: f64) -> f64 {
+pub fn z_dpois_rs(x: i32, lambda: f64, log: bool) -> f64 {
     let mut p = x as f64 * lambda.ln() - lambda;
 
     for i in 1..=x {
         p -= f64::from(i).ln();
     }
 
-    p.exp()
+    if log {
+        p
+    } else {
+        p.exp()
+    }
 }
 
 /// Compute the Poisson cumulative distribution function P(X ≤ x)
@@ -96,7 +115,7 @@ pub fn z_dpois_rs(x: i32, lambda: f64) -> f64 {
 #[extendr]
 // Named di for reference to the dpois function and this iterator approach
 pub fn z_ppois_di(x: i32, lambda: f64) -> f64 {
-    (0..=x).map(|i| z_dpois_rs(i, lambda)).sum()
+    (0..=x).map(|i| z_dpois_rs(i, lambda, false)).sum::<f64>()
 }
 
 /// Compute the Poisson cumulative distribution function P(X ≤ x)
@@ -119,16 +138,273 @@ pub fn z_ppois_rec(x: i32, lambda: f64) -> f64 {
     cdf
 }
 
-extendr_module! {
-    mod distributions;
-    fn z_dnorm_rs;
-    fn z_pnorm_std;
-    fn z_dpois_rs;
-    fn z_ppois_di;
-    fn z_ppois_rec;
+// ============================================================
+// Documentation for z_dgamma_rs
+// ============================================================
+
+/// Compute the gamma distribution probability density function.
+///
+/// Evaluates the PDF of the Gamma(shape, rate) distribution at x using
+/// log-space arithmetic to avoid overflow:
+///
+///   f(x | α, β) = β^α / Γ(α) · x^(α-1) · e^(-βx)
+///
+/// Computed as:
+///   ln f = α·ln(β) - ln Γ(α) + (α-1)·ln(x) - β·x
+///
+/// The log-gamma term is evaluated via `z_lgamma()` (Boost adaptation).
+///
+/// # Arguments
+/// * `x`     - A positive value at which to evaluate the density (x > 0)
+/// * `shape` - The shape parameter α > 0
+/// * `rate`  - The rate parameter β > 0 (inverse of scale)
+/// * `log`   - If true, return ln f(x) instead of f(x)
+///
+/// # Returns
+/// The probability density f(x | α, β), or its natural log if `log = true`.
+/// @param x A positive numeric value
+/// @param shape The shape parameter (α > 0)
+/// @param rate The rate parameter (β > 0)
+/// @param log Logical; if TRUE, return the log-density
+/// @return The gamma PDF value at x, or ln(PDF) if log = TRUE
+/// @export
+#[extendr]
+pub fn z_dgamma_rs(x: f64, shape: f64, rate: f64, log: bool) -> f64 {
+    let lnum: f64 = shape * rate.ln();
+    let lgam: f64 = z_lgamma(shape);
+    let lpow: f64 = (shape - 1.0) * x.ln();
+
+    let pdf: f64 = lnum - lgam + lpow - (rate * x);
+
+    if log {
+        pdf
+    } else {
+        pdf.exp()
+    }
 }
 
+// -------------------- Convenience Functions -------------------
+
+// ============================================================
+// Documentation for z_lgamma (Boost adaptation)
+// ============================================================
+
+/// Compute the natural logarithm of the gamma function, ln Γ(z).
+///
+/// Uses a simplified adaptation of the Boost.Math C++ library's Lanczos
+/// approximation (lanczos13m53 parameter set, N=13, G≈6.0247), which is
+/// optimised for IEEE 754 double-precision (f64) arithmetic. The coefficients
+/// are from the `lanczos_sum_expG_scaled` variant, which absorbs both the
+/// √(2π) constant and the e^G scaling factor into the rational polynomial,
+/// eliminating two sources of rounding error.
+///
+/// The Lanczos sum is evaluated as a ratio of two degree-12 polynomials
+/// P(z)/Q(z) via Horner's method with fused multiply-add (FMA) instructions,
+/// avoiding the catastrophic cancellation that can occur with the traditional
+/// alternating-sign summation formulation.
+///
+/// Maximum approximation error: ~1.2 × 10⁻¹⁷ (near full f64 precision).
+///
+/// Simplifications relative to the full Boost implementation:
+/// - Omits the special Taylor series handling for z near 1 and 2
+///   (costs ~1-2 ULPs in those neighbourhoods, negligible for statistical use)
+/// - Omits the log(tgamma(z)) path for 3 ≤ z < 100
+///
+/// # Arguments
+/// * `z` - A positive real number (z > 0), or z < 0.5 (handled via reflection)
+///
+/// # Returns
+/// The value of ln Γ(z) as an f64.
+///
+/// # References
+/// - Boost.Math library: <https://www.boost.org/doc/libs/latest/libs/math/doc/html/math_toolkit/lanczos.html>
+/// - Pugh, G.R. (2004). "An Analysis of the Lanczos Gamma Approximation."
+///   PhD thesis, University of British Columbia.
+/// - Lanczos, C. (1964). "A Precision Approximation of the Gamma Function."
+///   SIAM Journal on Numerical Analysis, 1(1), 86-96.
+/// @param z A positive numeric value
+/// @return The natural logarithm of the gamma function at z
+/// @export
+#[allow(clippy::excessive_precision)]
+#[extendr]
+pub fn z_lgamma(z: f64) -> f64 {
+    // Checking if z is a small whole number to return precomputed values
+    if z > 0.0 && z <= 16.0 && z.fract() == 0.0 {
+        return LN_FACTORIALS[(z - 1.0) as usize];
+    }
+
+    // Applying reflection formula when z < 0.5
+    if z < 0.5 {
+        let lgam: f64 = LN_PI - (PI * z).sin().abs().ln() - z_lgamma(1.0 - z);
+        return lgam;
+    }
+
+    const G: f64 = 6.024680040776729583740234375;
+
+    // Numerator Coefficients (P)
+    const P: [f64; 13] = [
+        56906521.91347156388090791033559122686859,
+        103794043.1163445451906271053616070238554,
+        86363131.28813859145546927288977868422342,
+        43338889.32467613834773723740590533316085,
+        14605578.08768506808414169982791359218571,
+        3481712.15498064590882071018964774556468,
+        601859.6171681098786670226533699352302507,
+        75999.29304014542649875303443598909137092,
+        6955.999602515376140356310115515198987526,
+        449.9445569063168119446858607650988409623,
+        19.51992788247617482847860966235652136208,
+        0.5098416655656676188125178644804694509993,
+        0.006061842346248906525783753964555936883222,
+    ];
+
+    // Denominator Coefficients (Q)
+    const Q: [f64; 13] = [
+        0.0,
+        39916800.0,
+        120543840.0,
+        150917976.0,
+        105258076.0,
+        45995730.0,
+        13339535.0,
+        2637558.0,
+        357423.0,
+        32670.0,
+        1925.0,
+        66.0,
+        1.0,
+    ];
+
+    // Core terms in Boost formulation
+    let t = z - 0.5;
+    let mut lgam = t * (z + G - 0.5).ln() - t;
+
+    // Only evaluating the Lanczos sum (Boost authors' rational polynomial)
+    // if the size of `lgam` doesn't just truncate the precision anyway
+    if lgam * f64::EPSILON < 20.0 {
+        let numer = P.iter().rev().fold(0.0, |acc: f64, &x| acc.mul_add(z, x));
+        let denom = Q.iter().rev().fold(0.0, |acc: f64, &x| acc.mul_add(z, x));
+
+        lgam += (numer / denom).ln();
+    }
+
+    lgam
+}
+
+// ============================================================
+// Documentation for z_lgamma_godfrey (pedagogical implementation)
+// ============================================================
+
+/// Compute ln Γ(z) using Godfrey's Lanczos coefficient set (g=7, N=9).
+///
+/// This is a pedagogical implementation of the traditional Lanczos approximation
+/// using Paul Godfrey's well-known f64 coefficient set. Unlike the Boost
+/// adaptation in `z_lgamma()`, this uses the standard formulation:
+///
+///   ln Γ(z) = ½ ln(2π) + (z - ½) ln(z + g - ½) - (z + g - ½) + ln S(z)
+///
+/// where S(z) = c₀ + Σ(k=1..8) cₖ/(z-1+k) is the Lanczos sum with
+/// alternating-sign coefficients, and the formula is evaluated after
+/// shifting z → z-1 to convert from Γ(z+1) to Γ(z).
+///
+/// This implementation is less precise than `z_lgamma()` due to potential
+/// cancellation in the alternating-sign sum, but is included as a learning
+/// exercise. It is not exported to R.
+///
+/// # Arguments
+/// * `z` - A positive real number
+///
+/// # Returns
+/// The value of ln Γ(z) as an f64.
+///
+/// # References
+/// - Godfrey, P. "Lanczos Implementation of the Gamma Function."
+///   <http://my.fit.edu/~gabdo/gamma.txt>
+/// - <https://www.mrob.com/pub/ries/lanczos-gamma.html>
+#[allow(unused)]
+#[allow(clippy::excessive_precision)]
+#[allow(clippy::needless_range_loop)]
+pub(crate) fn z_lgamma_godfrey(mut z: f64) -> f64 {
+    // Checking if z is a small whole number to return precomputed values
+    if z > 0.0 && z <= 16.0 && z.fract() == 0.0 {
+        return LN_FACTORIALS[(z - 1.0) as usize];
+    }
+
+    // Godfrey's coefficient set, g = 7, N = 9
+    const G: f64 = 7.0;
+    const COEFFS: [f64; 9] = [
+        0.99999999999980993227684700473478,
+        676.520368121885098567009190444019,
+        -1259.13921672240287047156078755283,
+        771.3234287776530788486528258894,
+        -176.61502916214059906584551354,
+        12.507343278686904814458936853,
+        -0.13857109526572011689554707,
+        9.984369578019570859563e-6,
+        1.50563273514931155834e-7,
+    ];
+
+    // Applying reflection formula when z < 0.5
+    if z < 0.5 {
+        let lgam: f64 = LN_PI - (PI * z).sin().abs().ln() - z_lgamma_godfrey(1.0 - z);
+        return lgam;
+    }
+
+    z -= 1.0;
+
+    let mut s: f64 = COEFFS[0];
+
+    for i in 1..9 {
+        s += COEFFS[i] / (z + i as f64);
+    }
+
+    let t = z + G + 0.5;
+
+    let lgam: f64 = LN_SQRT_2PI + ((z + 0.5) * t.ln()) - t + s.ln();
+
+    lgam
+}
+
+// ============================================================
+// Documentation for LN_FACTORIALS lookup table
+// ============================================================
+
+/// Precomputed values of ln(n!) for n = 0, 1, ..., 15.
+///
+/// Used by `z_lgamma()` and `z_lgamma_godfrey()` to short-circuit evaluation
+/// when the input is a small positive integer. Since Γ(n) = (n-1)! for
+/// positive integers, ln Γ(n) = ln((n-1)!), so `LN_FACTORIALS[n-1]` gives
+/// the correct result for z = n.
+///
+/// Index mapping: LN_FACTORIALS[k] = ln(k!) for k = 0..15.
+///   - LN_FACTORIALS[0] = ln(0!) = 0.0
+///   - LN_FACTORIALS[1] = ln(1!) = 0.0
+///   - LN_FACTORIALS[2] = ln(2!) ≈ 0.6931
+///   - ...
+///   - LN_FACTORIALS[15] = ln(15!) ≈ 27.8993
+#[allow(clippy::approx_constant)]
+#[allow(clippy::excessive_precision)]
+pub(crate) const LN_FACTORIALS: [f64; 16] = [
+    0.0,
+    0.0,
+    0.6931471805599453094172321,
+    1.791759469228055000812477,
+    3.178053830347945619646942,
+    4.787491742782045994247701,
+    6.579251212010100995060178,
+    8.525161361065414300165531,
+    10.60460290274525022841723,
+    12.80182748008146961120772,
+    15.10441257307551529522571,
+    17.50230784587388583928765,
+    19.98721449566188614951736,
+    22.55216385312342288557085,
+    25.19122118273868150009343,
+    27.89927138384089156608944,
+];
+
 // Rust-side unit tests
+#[allow(clippy::excessive_precision)]
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -139,13 +415,15 @@ mod tests {
     fn test_dnorm_standard_at_zero() {
         // dnorm(0, 0, 1) = 1/sqrt(2*pi) ≈ 0.3989422804
         let expected = 1.0 / (2.0 * PI).sqrt();
-        assert!((z_dnorm_rs(0.0, 0.0, 1.0) - expected).abs() < 1e-10);
+        assert!((z_dnorm_rs(0.0, 0.0, 1.0, false) - expected).abs() < 1e-10);
     }
 
     #[test]
     fn test_dnorm_nonstandard() {
         // dnorm(10, 10, 3) should equal dnorm(0, 0, 3)
-        assert!((z_dnorm_rs(10.0, 10.0, 3.0) - z_dnorm_rs(0.0, 0.0, 3.0)).abs() < 1e-10);
+        assert!(
+            (z_dnorm_rs(10.0, 10.0, 3.0, false) - z_dnorm_rs(0.0, 0.0, 3.0, false)).abs() < 1e-10
+        );
     }
 
     // --- z_pnorm_std tests ---
@@ -183,27 +461,31 @@ mod tests {
         assert!(z_pnorm_std(f64::NAN).is_nan());
     }
 
+    // --- z_dpois_rs tests ---
+
     #[test]
     fn test_dpois_at_zero() {
         // P(X=0 | λ=3) = e^{-3} ≈ 0.0497871
         let expected = (-3.0_f64).exp();
-        assert!((z_dpois_rs(0, 3.0) - expected).abs() < 1e-10);
+        assert!((z_dpois_rs(0, 3.0, false) - expected).abs() < 1e-10);
     }
 
     #[test]
     fn test_dpois_known_value() {
         // P(X=2 | λ=3) = 3^2 * e^{-3} / 2! = 9 * e^{-3} / 2 ≈ 0.2240418
         let expected = 9.0 * (-3.0_f64).exp() / 2.0;
-        assert!((z_dpois_rs(2, 3.0) - expected).abs() < 1e-10);
+        assert!((z_dpois_rs(2, 3.0, false) - expected).abs() < 1e-10);
     }
 
     #[test]
     fn test_dpois_sums_to_one() {
         // Sum of PMF over a large range should ≈ 1
         let lambda = 5.0;
-        let total: f64 = (0..=50).map(|k| z_dpois_rs(k, lambda)).sum();
+        let total: f64 = (0..=50).map(|k| z_dpois_rs(k, lambda, false)).sum();
         assert!((total - 1.0).abs() < 1e-10);
     }
+
+    // --- z_ppois_di tests ---
 
     #[test]
     fn test_ppois_at_zero() {
@@ -228,5 +510,214 @@ mod tests {
     fn test_ppois_approaches_one() {
         // P(X<=50 | λ=5) should be very close to 1
         assert!((z_ppois_di(50, 5.0) - 1.0).abs() < 1e-10);
+    }
+
+    // --- z_lgamma tests (Boost adaptation) ---
+
+    #[test]
+    fn test_lgamma_small_integers() {
+        // ln Γ(n) = ln((n-1)!) for positive integers
+        // Γ(1) = 0! = 1, ln(1) = 0
+        assert!((z_lgamma(1.0) - 0.0).abs() < 1e-14);
+        // Γ(2) = 1! = 1, ln(1) = 0
+        assert!((z_lgamma(2.0) - 0.0).abs() < 1e-14);
+        // Γ(3) = 2! = 2, ln(2) ≈ 0.6931471805599453
+        assert!((z_lgamma(3.0) - 2.0_f64.ln()).abs() < 1e-14);
+        // Γ(5) = 4! = 24, ln(24) ≈ 3.178053830347946
+        assert!((z_lgamma(5.0) - 24.0_f64.ln()).abs() < 1e-13);
+        // Γ(11) = 10! = 3628800
+        assert!((z_lgamma(11.0) - 3628800.0_f64.ln()).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_lgamma_half_integers() {
+        // Γ(0.5) = √π, so ln Γ(0.5) = 0.5 * ln(π) ≈ 0.5723649429247001
+        let expected = 0.5 * PI.ln();
+        assert!((z_lgamma(0.5) - expected).abs() < 1e-14);
+        // Γ(1.5) = 0.5 * √π
+        let expected_1_5 = (0.5 * PI.sqrt()).ln();
+        assert!((z_lgamma(1.5) - expected_1_5).abs() < 1e-14);
+    }
+
+    #[test]
+    fn test_lgamma_known_values() {
+        // Values cross-referenced with R's lgamma()
+        // lgamma(0.1) ≈ 2.252712651734206
+        assert!((z_lgamma(0.1) - 2.252712651734205959869702).abs() < 1e-12);
+        // lgamma(2.5) ≈ 0.2846828704729192
+        assert!((z_lgamma(2.5) - 0.2846828704729191596324947).abs() < 1e-13);
+        // lgamma(10.3) ≈ 13.02765747685609
+        assert!((z_lgamma(10.3) - 13.48203678613835697061507).abs() < 1e-11);
+        // lgamma(100.0) ≈ 359.1342053695754
+        assert!((z_lgamma(100.0) - 359.1342053695753987760440).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_lgamma_large_z() {
+        // lgamma(1000.0) ≈ 5905.220423209181
+        assert!((z_lgamma(1000.0) - 5905.220423209181).abs() < 1e-7);
+        // lgamma(10000.0) ≈ 82099.71749644238
+        assert!((z_lgamma(10000.0) - 82099.71749644238).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_lgamma_near_one_and_two() {
+        // Near the zeros of ln Γ: ln Γ(1) = 0, ln Γ(2) = 0
+        // lgamma(1.0001) ≈ -0.00005772...
+        assert!(z_lgamma(1.0001).abs() < 1e-3);
+        assert!(z_lgamma(1.9999).abs() < 1e-3);
+        // Verify sign: lgamma is negative on (1, 2) and positive outside
+        assert!(z_lgamma(1.5) < 0.0);
+        assert!(z_lgamma(0.5) > 0.0);
+        assert!(z_lgamma(3.0) > 0.0);
+    }
+
+    #[test]
+    fn test_lgamma_reflection_formula() {
+        // For z < 0.5, verify via reflection: Γ(z)Γ(1-z) = π / sin(πz)
+        // So lgamma(z) + lgamma(1-z) = ln(π) - ln|sin(πz)|
+        let z = 0.25;
+        let lhs = z_lgamma(z) + z_lgamma(1.0 - z);
+        let rhs = PI.ln() - (PI * z).sin().ln();
+        assert!((lhs - rhs).abs() < 1e-13);
+    }
+
+    #[test]
+    fn test_lgamma_smoothness() {
+        // A function is smooth if the numerical derivative doesn't jump wildly.
+        // We check the transition across z=3.0 (where the integer lookup table lives)
+        let eps = 1e-7;
+        let z = 3.0;
+
+        // Evaluate just below, exactly at, and just above the integer
+        let val_below = z_lgamma(z - eps);
+        let val_exact = z_lgamma(z);
+        let val_above = z_lgamma(z + eps);
+
+        // The rate of change (slope) approaching from the left should match the right
+        let slope_left = (val_exact - val_below) / eps;
+        let slope_right = (val_above - val_exact) / eps;
+
+        // If the difference in slopes is extremely small, the function is continuous and smooth
+        assert!((slope_left - slope_right).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_lgamma_extreme_tails() {
+        // Extremely small positive number (approaching the singularity)
+        let tiny = 1e-100;
+        assert!(z_lgamma(tiny) > 0.0);
+        assert!(!z_lgamma(tiny).is_nan());
+
+        // Extremely large number (approaching f64 overflow)
+        // f64 max is ~1.7e308, lgamma overflows before that, but 1e100 is safe
+        let massive = 1e100;
+        assert!(z_lgamma(massive) > 0.0);
+        assert!(!z_lgamma(massive).is_infinite());
+    }
+
+    // --- z_lgamma_godfrey tests ---
+
+    #[test]
+    fn test_lgamma_godfrey_matches_boost() {
+        // Both implementations should agree to high precision
+        let test_values = [0.1, 0.5, 1.0, 1.5, 2.0, 2.5, 5.0, 10.0, 50.0, 100.0];
+        for z in test_values {
+            let boost = z_lgamma(z);
+            let godfrey = z_lgamma_godfrey(z);
+            assert!(
+                (boost - godfrey).abs() < 1e-12,
+                "Mismatch at z = {}: boost = {}, godfrey = {}",
+                z,
+                boost,
+                godfrey
+            );
+        }
+    }
+
+    #[test]
+    fn test_lgamma_godfrey_integers() {
+        assert!((z_lgamma_godfrey(1.0) - 0.0).abs() < 1e-14);
+        assert!((z_lgamma_godfrey(5.0) - 24.0_f64.ln()).abs() < 1e-13);
+    }
+
+    // --- z_dgamma_rs tests ---
+
+    #[test]
+    fn test_dgamma_exponential_special_case() {
+        // Gamma(shape=1, rate=λ) is Exponential(λ)
+        // f(x) = λ * exp(-λx), so dgamma(1, 1, 2) = 2 * exp(-2) ≈ 0.2706706
+        let result = z_dgamma_rs(1.0, 1.0, 2.0, false);
+        let expected = 2.0 * (-2.0_f64).exp();
+        assert!((result - expected).abs() < 1e-15);
+    }
+
+    #[test]
+    fn test_dgamma_known_values() {
+        // Cross-referenced with R: dgamma(2, shape=3, rate=1)
+        // = 1^3 / Γ(3) * 2^2 * exp(-2) = 2^2 * exp(-2) / 2 ≈ 0.2706706
+        let result = z_dgamma_rs(2.0, 3.0, 1.0, false);
+        let expected = 0.2706705664732254;
+        assert!(
+            (result - expected).abs() < 1e-15,
+            "dgamma(2, 3, 1) = {}, expected {}",
+            result,
+            expected
+        );
+
+        // dgamma(1, shape=2, rate=2) ≈ 0.5413411
+        let result2 = z_dgamma_rs(1.0, 2.0, 2.0, false);
+        let expected2 = 0.5413411329464508;
+        assert!((result2 - expected2).abs() < 1e-15);
+
+        // dgamma(0.5, shape=0.5, rate=1) ≈ 0.4393913
+        let result3 = z_dgamma_rs(0.5, 0.5, 0.5, false);
+        let expected3 = 0.4393912894677223970468620;
+        assert!((result3 - expected3).abs() < 1e-15);
+    }
+
+    #[test]
+    fn test_dgamma_log_mode() {
+        // log(dgamma(2, 3, 1)) ≈ ln(0.2706706)
+        let log_result = z_dgamma_rs(2.0, 3.0, 1.0, true);
+        let direct_result = z_dgamma_rs(2.0, 3.0, 1.0, false);
+        assert!((log_result - direct_result.ln()).abs() < 1e-14);
+    }
+
+    #[test]
+    fn test_dgamma_large_shape() {
+        // For large shape, gamma approaches normal; density should be well-behaved
+        // dgamma(50, shape=50, rate=1) — near the mode at (shape-1)/rate = 49
+        let result = z_dgamma_rs(50.0, 50.0, 1.0, false);
+        assert!(result > 0.0);
+        assert!(result < 1.0);
+        // dgamma(50, 50, 1) ≈ 0.056325...
+        assert!((result - 0.05632500632519082541154874).abs() < 1e-15);
+    }
+
+    #[test]
+    fn test_dgamma_small_shape() {
+        // Small shape parameter — density concentrated near zero
+        // dgamma(0.01, shape=0.1, rate=1) should be large
+        let result = z_dgamma_rs(0.01, 0.1, 1.0, false);
+        assert!(result > 1.0); // Density can exceed 1 for small shape
+    }
+
+    #[test]
+    fn test_dgamma_integrates_approximately() {
+        // Rough numerical integration check: the PDF should integrate to ~1
+        // Use a simple Riemann sum over [0.001, 20] with shape=2, rate=1
+        let shape = 2.0;
+        let rate = 1.0;
+        let dx = 0.001;
+        let n = 20000;
+        let sum: f64 = (1..=n)
+            .map(|i| {
+                let x = i as f64 * dx;
+                z_dgamma_rs(x, shape, rate, false) * dx
+            })
+            .sum();
+        // Should be close to 1, allowing for discretisation error
+        assert!((sum - 1.0).abs() < 0.01, "Integral = {}", sum);
     }
 }

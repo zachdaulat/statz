@@ -7,14 +7,14 @@
 z_pnorm(x, mean = 0, sd = 1)
 }
 \arguments{
-\item{x}{A numeric value or vector of quantiles}
+\item{x}{A numeric value quantile}
 
 \item{mean}{Mean of the normal distribution (default: 0)}
 
 \item{sd}{Standard deviation of the normal distribution (default: 1)}
 }
 \value{
-Cumulative probability(ies) in \link{0, 1}
+Cumulative probability (0 < y < 1)
 }
 \description{
 Computes P(X <= x) for X ~ N(mean, sd^2) using

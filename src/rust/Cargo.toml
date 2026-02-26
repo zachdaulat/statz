@@ -10,7 +10,8 @@ crate-type = ["staticlib"]
 name = 'statz'
 
 [dependencies]
-extendr-api = '0.8.1'
+extendr-api = "0.8.1"
+statrs = "0.18.0"
 
 [profile.release]
 lto = true

@@ -8,11 +8,11 @@
 #'
 #' @return The probability density at x
 #' @export
-z_dnorm <- function(x, mean = 0, sd = 1) {
+z_dnorm <- function(x, mean = 0, sd = 1, log = FALSE) {
   if (!is.numeric(sd) || any(sd <= 0, na.rm = TRUE)) {
     rlang::abort("`sd` must be a positive numeric value.")
   }
-  z_dnorm_rs(x, mean, sd)
+  z_dnorm_rs(x = x, mean = mean, sd = sd, log = log)
 }
 
 #' Normal distribution cumulative distribution function
@@ -40,7 +40,7 @@ z_pnorm <- function(x, mean = 0, sd = 1) {
 
   # Compute z-score and call Rust backend
   z <- (x - mean) / sd
-  z_pnorm_std(z)
+  z_pnorm_std(z = z)
 }
 
 #' Poisson distribution probability mass function
@@ -52,7 +52,7 @@ z_pnorm <- function(x, mean = 0, sd = 1) {
 #'
 #' @return Probability mass at x
 #' @export
-z_dpois <- function(x, lambda) {
+z_dpois <- function(x, lambda, log = FALSE) {
   # Input validation
   if (!is.numeric(x) || x < 0 || x != floor(x)) {
     rlang::abort("`x` must be a positive integer")
@@ -61,7 +61,7 @@ z_dpois <- function(x, lambda) {
     rlang::abort("`lambda` must be a positive numeric value")
   }
 
-  z_dpois_rs(as.integer(x), lambda)
+  z_dpois_rs(x = as.integer(x), lambda = lambda, log = log)
 }
 
 #' Poisson cumulative probability function
@@ -82,5 +82,67 @@ z_ppois <- function(x, lambda) {
     rlang::abort("`lambda` must be a positive numeric value")
   }
 
-  z_ppois_rec(x, lambda)
+  z_ppois_rec(x = x, lambda = lambda)
+}
+
+
+#' Gamma distribution probability density function
+#'
+#' Computes the PDF of the Gamma(shape, rate) distribution at x,
+#' using log-space arithmetic with a Lanczos approximation for ln Γ(α)
+#' adapted from the Boost.Math C++ library's lanczos13m53 parameter set.
+#'
+#' Supports both rate and scale parameterisations, matching R's
+#' \code{\link[stats]{dgamma}} interface. If neither `rate` nor `scale`
+#' is provided, defaults to rate = 1.
+#'
+#' @param x A positive numeric value at which to evaluate the density
+#' @param shape The shape parameter (α > 0)
+#' @param rate The rate parameter (β > 0). Exactly one of `rate` or
+#'   `scale` should be provided.
+#' @param scale The scale parameter (θ = 1/β > 0). Exactly one of
+#'   `rate` or `scale` should be provided.
+#' @param log Logical; if TRUE, return the log-density (default: FALSE)
+#'
+#' @return The gamma PDF value f(x | α, β), or ln(f) if `log = TRUE`.
+#' @export
+#'
+#' @examples
+#' # Exponential distribution (shape = 1)
+#' z_dgamma(1, shape = 1, rate = 2)
+#'
+#' # Compare with R's dgamma
+#' z_dgamma(2, shape = 3, rate = 1)
+#' dgamma(2, shape = 3, rate = 1)
+#'
+#' # Scale parameterisation
+#' z_dgamma(2, shape = 3, scale = 2)
+z_dgamma <- function(x, shape, rate = NULL, scale = NULL, log = FALSE) {
+  # Input validation
+  if (!is.numeric(x) || x <= 0) {
+    rlang::abort("`x` must be a positive numeric value")
+  }
+
+  if (!is.numeric(shape) || shape <= 0) {
+    rlang::abort("`shape` must be a positive numeric value")
+  }
+
+  if (!is.null(rate) && !is.null(scale)) {
+    rlang::abort("Only one of `rate` or `scale` should be provided, not both")
+  }
+
+  if (is.null(rate) && is.null(scale)) {
+    rate <- 1
+  } else if (is.null(rate)) {
+    if (!is.numeric(scale) || scale <= 0) {
+      rlang::abort("`scale` must be a positive numeric value")
+    }
+    rate <- 1 / scale
+  } else {
+    if (!is.numeric(rate) || rate <= 0) {
+      rlang::abort("`rate` must be a positive numeric value")
+    }
+  }
+
+  z_dgamma_rs(x = x, shape = shape, rate = rate, log = log)
 }

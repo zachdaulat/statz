@@ -4,7 +4,7 @@
 \alias{z_dnorm}
 \title{Normal distribution probability density function}
 \usage{
-z_dnorm(x, mean = 0, sd = 1)
+z_dnorm(x, mean = 0, sd = 1, log = FALSE)
 }
 \arguments{
 \item{x}{A numeric value or vector}

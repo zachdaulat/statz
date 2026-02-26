@@ -67,7 +67,7 @@ z_cor_onepass <- function(x, y) .Call(wrap__z_cor_onepass, x, y)
 #' @param sd The standard deviation of the normal distribution (σ > 0)
 #' @return The probability density f(x | μ, σ)
 #' @export
-z_dnorm_rs <- function(x, mean, sd) .Call(wrap__z_dnorm_rs, x, mean, sd)
+z_dnorm_rs <- function(x, mean, sd, log) .Call(wrap__z_dnorm_rs, x, mean, sd, log)
 
 #' Compute the standard normal cumulative distribution function (CDF)
 #' using the Abramowitz and Stegun (1972, 10th ed.) equation 7.1.26
@@ -78,11 +78,95 @@ z_dnorm_rs <- function(x, mean, sd) .Call(wrap__z_dnorm_rs, x, mean, sd)
 #' @export
 z_pnorm_std <- function(z) .Call(wrap__z_pnorm_std, z)
 
-z_dpois_rs <- function(x, lambda) .Call(wrap__z_dpois_rs, x, lambda)
+#' Compute the Poisson probability mass function P(X = x)
+#' using log-space arithmetic to avoid factorial overflow.
+#' @param x A non-negative integer count
+#' @param lambda The rate parameter (λ > 0)
+#' @return The probability mass P(X = x | λ)
+#' @export
+z_dpois_rs <- function(x, lambda, log) .Call(wrap__z_dpois_rs, x, lambda, log)
 
+#' Compute the Poisson cumulative distribution function P(X ≤ x)
+#' using log-space PMF evaluation for each term.
+#' @param x A non-negative integer count
+#' @param lambda The rate parameter (λ > 0)
+#' @return The cumulative probability P(X ≤ x | λ)
+#' @export
 z_ppois_di <- function(x, lambda) .Call(wrap__z_ppois_di, x, lambda)
 
+#' Compute the Poisson cumulative distribution function P(X ≤ x)
+#' using a recurrence relation: P(X = k) = P(X = k-1) · λ/k
+#' @param x A non-negative integer count
+#' @param lambda The rate parameter (λ > 0)
+#' @return The cumulative probability P(X ≤ x | λ)
+#' @export
 z_ppois_rec <- function(x, lambda) .Call(wrap__z_ppois_rec, x, lambda)
+
+#' Compute the natural logarithm of the gamma function, ln Γ(z).
+#'
+#' Uses a simplified adaptation of the Boost.Math C++ library's Lanczos
+#' approximation (lanczos13m53 parameter set, N=13, G≈6.0247), which is
+#' optimised for IEEE 754 double-precision (f64) arithmetic. The coefficients
+#' are from the `lanczos_sum_expG_scaled` variant, which absorbs both the
+#' √(2π) constant and the e^G scaling factor into the rational polynomial,
+#' eliminating two sources of rounding error.
+#'
+#' The Lanczos sum is evaluated as a ratio of two degree-12 polynomials
+#' P(z)/Q(z) via Horner's method with fused multiply-add (FMA) instructions,
+#' avoiding the catastrophic cancellation that can occur with the traditional
+#' alternating-sign summation formulation.
+#'
+#' Maximum approximation error: ~1.2 × 10⁻¹⁷ (near full f64 precision).
+#'
+#' Simplifications relative to the full Boost implementation:
+#' - Omits the special Taylor series handling for z near 1 and 2
+#'   (costs ~1-2 ULPs in those neighbourhoods, negligible for statistical use)
+#' - Omits the log(tgamma(z)) path for 3 ≤ z < 100
+#'
+#' # Arguments
+#' * `z` - A positive real number (z > 0), or z < 0.5 (handled via reflection)
+#'
+#' # Returns
+#' The value of ln Γ(z) as an f64.
+#'
+#' # References
+#' - Boost.Math library: <https://www.boost.org/doc/libs/latest/libs/math/doc/html/math_toolkit/lanczos.html>
+#' - Pugh, G.R. (2004). "An Analysis of the Lanczos Gamma Approximation."
+#'   PhD thesis, University of British Columbia.
+#' - Lanczos, C. (1964). "A Precision Approximation of the Gamma Function."
+#'   SIAM Journal on Numerical Analysis, 1(1), 86-96.
+#' @param z A positive numeric value
+#' @return The natural logarithm of the gamma function at z
+#' @export
+z_lgamma <- function(z) .Call(wrap__z_lgamma, z)
+
+#' Compute the gamma distribution probability density function.
+#'
+#' Evaluates the PDF of the Gamma(shape, rate) distribution at x using
+#' log-space arithmetic to avoid overflow:
+#'
+#'   f(x | α, β) = β^α / Γ(α) · x^(α-1) · e^(-βx)
+#'
+#' Computed as:
+#'   ln f = α·ln(β) - ln Γ(α) + (α-1)·ln(x) - β·x
+#'
+#' The log-gamma term is evaluated via `z_lgamma()` (Boost adaptation).
+#'
+#' # Arguments
+#' * `x`     - A positive value at which to evaluate the density (x > 0)
+#' * `shape` - The shape parameter α > 0
+#' * `rate`  - The rate parameter β > 0 (inverse of scale)
+#' * `log`   - If true, return ln f(x) instead of f(x)
+#'
+#' # Returns
+#' The probability density f(x | α, β), or its natural log if `log = true`.
+#' @param x A positive numeric value
+#' @param shape The shape parameter (α > 0)
+#' @param rate The rate parameter (β > 0)
+#' @param log Logical; if TRUE, return the log-density
+#' @return The gamma PDF value at x, or ln(PDF) if log = TRUE
+#' @export
+z_dgamma_rs <- function(x, shape, rate, log) .Call(wrap__z_dgamma_rs, x, shape, rate, log)
 
 
 # nolint end
