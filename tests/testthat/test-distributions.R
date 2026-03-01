@@ -217,3 +217,22 @@ test_that("z_dgamma validates inputs correctly", {
   expect_error(z_dgamma(1, shape = 1, rate = -1))
   expect_error(z_dgamma(1, shape = 1, rate = 1, scale = 1))
 })
+
+test_that("z_pgamma matches R pgamma() for basic cases", {
+  expect_equal(
+    z_pgamma(2, shape = 3, rate = 1),
+    pgamma(2, shape = 3, rate = 1),
+    tolerance = 1e-10
+  )
+  expect_equal(
+    z_pgamma(1, shape = 2, scale = 0.5),
+    pgamma(1, shape = 2, scale = 0.5),
+    tolerance = 1e-10
+  )
+})
+
+test_that("z_pgamma validates inputs correctly", {
+  expect_error(z_pgamma("a", shape = 1, rate = 1))
+  expect_error(z_pgamma(1, shape = -1, rate = 1))
+  expect_error(z_pgamma(1, shape = 1, rate = 1, scale = 1))
+})

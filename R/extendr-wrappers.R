@@ -105,7 +105,7 @@ z_ppois_rec <- function(x, lambda) .Call(wrap__z_ppois_rec, x, lambda)
 #' Compute the natural logarithm of the gamma function, ln Γ(z).
 #'
 #' Uses a simplified adaptation of the Boost.Math C++ library's Lanczos
-#' approximation (lanczos13m53 parameter set, N=13, G≈6.0247), which is
+#' approximation (lanczos13m53 parameter set, N=13, G≈6.0247),
 #' optimised for IEEE 754 double-precision (f64) arithmetic. The coefficients
 #' are from the `lanczos_sum_expG_scaled` variant, which absorbs both the
 #' √(2π) constant and the e^G scaling factor into the rational polynomial,
@@ -116,7 +116,8 @@ z_ppois_rec <- function(x, lambda) .Call(wrap__z_ppois_rec, x, lambda)
 #' avoiding the catastrophic cancellation that can occur with the traditional
 #' alternating-sign summation formulation.
 #'
-#' Maximum approximation error: ~1.2 × 10⁻¹⁷ (near full f64 precision).
+#' Maximum approximation error: ~1.2 × 10⁻¹⁷ (near full f64 precision),
+#' except for inputs infinitesimally close to 1 and 2.
 #'
 #' Simplifications relative to the full Boost implementation:
 #' - Omits the special Taylor series handling for z near 1 and 2
@@ -152,12 +153,6 @@ z_lgamma <- function(z) .Call(wrap__z_lgamma, z)
 #'
 #' The log-gamma term is evaluated via `z_lgamma()` (Boost adaptation).
 #'
-#' # Arguments
-#' * `x`     - A positive value at which to evaluate the density (x > 0)
-#' * `shape` - The shape parameter α > 0
-#' * `rate`  - The rate parameter β > 0 (inverse of scale)
-#' * `log`   - If true, return ln f(x) instead of f(x)
-#'
 #' # Returns
 #' The probability density f(x | α, β), or its natural log if `log = true`.
 #' @param x A positive numeric value
@@ -167,6 +162,22 @@ z_lgamma <- function(z) .Call(wrap__z_lgamma, z)
 #' @return The gamma PDF value at x, or ln(PDF) if log = TRUE
 #' @export
 z_dgamma_rs <- function(x, shape, rate, log) .Call(wrap__z_dgamma_rs, x, shape, rate, log)
+
+#' Compute the gamma CDF: P(X <= x) for X ~ Gamma(shape, rate).
+#'
+#' Dispatches to `lower_gamma_series` (Taylor series for P) when the
+#' scaled argument z = rate · x is small relative to shape, and to
+#' `upper_gamma_cf` (Legendre continued fraction for Q) otherwise.
+#' The crossover at z = shape + 1 ensures that the directly computed
+#' quantity is always the smaller of P and Q, avoiding precision loss
+#' from subtraction near 1.
+#'
+#' @param x A positive numeric value (quantile)
+#' @param shape The shape parameter (α > 0)
+#' @param rate The rate parameter (β > 0)
+#' @return The cumulative probability P(X ≤ x | α, β)
+#' @export
+z_pgamma_rs <- function(x, shape, rate) .Call(wrap__z_pgamma_rs, x, shape, rate)
 
 
 # nolint end

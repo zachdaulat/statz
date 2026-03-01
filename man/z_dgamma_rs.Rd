@@ -30,15 +30,6 @@ ln f = α·ln(β) - ln Γ(α) + (α-1)·ln(x) - β·x
 
 The log-gamma term is evaluated via \code{z_lgamma()} (Boost adaptation).
 }
-\section{Arguments}{
-\itemize{
-\item \code{x}     - A positive value at which to evaluate the density (x > 0)
-\item \code{shape} - The shape parameter α > 0
-\item \code{rate}  - The rate parameter β > 0 (inverse of scale)
-\item \code{log}   - If true, return ln f(x) instead of f(x)
-}
-}
-
 \section{Returns}{
 The probability density f(x | α, β), or its natural log if \code{log = true}.
 }

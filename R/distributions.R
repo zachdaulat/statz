@@ -119,7 +119,7 @@ z_ppois <- function(x, lambda) {
 #' z_dgamma(2, shape = 3, scale = 2)
 z_dgamma <- function(x, shape, rate = NULL, scale = NULL, log = FALSE) {
   # Input validation
-  if (!is.numeric(x) || x <= 0) {
+  if (!is.numeric(x) || x < 0) {
     rlang::abort("`x` must be a positive numeric value")
   }
 
@@ -145,4 +145,56 @@ z_dgamma <- function(x, shape, rate = NULL, scale = NULL, log = FALSE) {
   }
 
   z_dgamma_rs(x = x, shape = shape, rate = rate, log = log)
+}
+
+#' Gamma cumulative distribution function
+#'
+#' Computes P(X <= x) for X ~ Gamma(shape, rate), using a Taylor series
+#' for the lower regularised incomplete gamma function when x is small
+#' relative to shape, and Legendre's continued fraction (via the modified
+#' Lentz algorithm) for the upper complement when x is large.
+#'
+#' @param x A positive numeric value (quantile)
+#' @param shape The shape parameter (α > 0)
+#' @param rate The rate parameter (β > 0). Exactly one of `rate` or
+#'   `scale` should be provided.
+#' @param scale The scale parameter (θ = 1/β > 0). Exactly one of
+#'   `rate` or `scale` should be provided.
+#'
+#' @return Cumulative probability P(X <= x)
+#' @export
+#'
+#' @examples
+#' z_pgamma(2, shape = 3, rate = 1)
+#' pgamma(2, shape = 3, rate = 1)
+#'
+#' z_pgamma(1, shape = 1, rate = 1)   # Exponential: 1 - exp(-1)
+z_pgamma <- function(x, shape, rate = NULL, scale = NULL) {
+  # Input validation
+  if (!is.numeric(x)) {
+    rlang::abort("`x` must be a numeric value")
+  }
+
+  if (!is.numeric(shape) || shape <= 0) {
+    rlang::abort("`shape` must be a positive numeric value")
+  }
+
+  if (!is.null(rate) && !is.null(scale)) {
+    rlang::abort("Only one of `rate` or `scale` should be provided, not both")
+  }
+
+  if (is.null(rate) && is.null(scale)) {
+    rate <- 1
+  } else if (is.null(rate)) {
+    if (!is.numeric(scale) || scale <= 0) {
+      rlang::abort("`scale` must be a positive numeric value")
+    }
+    rate <- 1 / scale
+  } else {
+    if (!is.numeric(rate) || rate <= 0) {
+      rlang::abort("`rate` must be a positive numeric value")
+    }
+  }
+
+  z_pgamma_rs(x = x, shape = shape, rate = rate)
 }

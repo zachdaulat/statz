@@ -1,3 +1,4 @@
+use core::f64;
 use extendr_api::prelude::*;
 use statrs::consts::{LN_PI, LN_SQRT_2PI};
 use std::f64::consts::{PI, SQRT_2};
@@ -11,6 +12,7 @@ extendr_module! {
     fn z_ppois_rec;
     fn z_lgamma;
     fn z_dgamma_rs;
+    fn z_pgamma_rs;
 }
 
 // Planned functions:
@@ -154,12 +156,6 @@ pub fn z_ppois_rec(x: i32, lambda: f64) -> f64 {
 ///
 /// The log-gamma term is evaluated via `z_lgamma()` (Boost adaptation).
 ///
-/// # Arguments
-/// * `x`     - A positive value at which to evaluate the density (x > 0)
-/// * `shape` - The shape parameter α > 0
-/// * `rate`  - The rate parameter β > 0 (inverse of scale)
-/// * `log`   - If true, return ln f(x) instead of f(x)
-///
 /// # Returns
 /// The probability density f(x | α, β), or its natural log if `log = true`.
 /// @param x A positive numeric value
@@ -183,6 +179,49 @@ pub fn z_dgamma_rs(x: f64, shape: f64, rate: f64, log: bool) -> f64 {
     }
 }
 
+/// Compute the gamma CDF: P(X <= x) for X ~ Gamma(shape, rate).
+///
+/// Dispatches to `lower_gamma_series` (Taylor series for P) when the
+/// scaled argument z = rate · x is small relative to shape, and to
+/// `upper_gamma_cf` (Legendre continued fraction for Q) otherwise.
+/// The crossover at z = shape + 1 ensures that the directly computed
+/// quantity is always the smaller of P and Q, avoiding precision loss
+/// from subtraction near 1.
+///
+/// @param x A positive numeric value (quantile)
+/// @param shape The shape parameter (α > 0)
+/// @param rate The rate parameter (β > 0)
+/// @return The cumulative probability P(X ≤ x | α, β)
+/// @export
+#[extendr]
+pub fn z_pgamma_rs(x: f64, shape: f64, rate: f64) -> f64 {
+    // 1. Check for R's specific NA_real_ first
+    if x.is_na() || shape.is_na() || rate.is_na() {
+        return f64::na(); // extendr bridges this back as NA_real_
+    }
+
+    // 2. Check for mathematically undefined NaN
+    if x.is_nan() || shape.is_nan() || rate.is_nan() {
+        return f64::NAN; // extendr bridges this back as NaN
+    }
+
+    // 3. Domain boundaries
+    if x <= 0.0 {
+        return 0.0;
+    }
+    if x.is_infinite() {
+        return 1.0;
+    }
+
+    let z: f64 = rate * x;
+
+    if z < shape + 1.0 {
+        lower_gamma_series(shape, z)
+    } else {
+        1.0 - upper_gamma_cf(shape, z)
+    }
+}
+
 // -------------------- Convenience Functions -------------------
 
 // ============================================================
@@ -192,7 +231,7 @@ pub fn z_dgamma_rs(x: f64, shape: f64, rate: f64, log: bool) -> f64 {
 /// Compute the natural logarithm of the gamma function, ln Γ(z).
 ///
 /// Uses a simplified adaptation of the Boost.Math C++ library's Lanczos
-/// approximation (lanczos13m53 parameter set, N=13, G≈6.0247), which is
+/// approximation (lanczos13m53 parameter set, N=13, G≈6.0247),
 /// optimised for IEEE 754 double-precision (f64) arithmetic. The coefficients
 /// are from the `lanczos_sum_expG_scaled` variant, which absorbs both the
 /// √(2π) constant and the e^G scaling factor into the rational polynomial,
@@ -203,7 +242,8 @@ pub fn z_dgamma_rs(x: f64, shape: f64, rate: f64, log: bool) -> f64 {
 /// avoiding the catastrophic cancellation that can occur with the traditional
 /// alternating-sign summation formulation.
 ///
-/// Maximum approximation error: ~1.2 × 10⁻¹⁷ (near full f64 precision).
+/// Maximum approximation error: ~1.2 × 10⁻¹⁷ (near full f64 precision),
+/// except for inputs infinitesimally close to 1 and 2.
 ///
 /// Simplifications relative to the full Boost implementation:
 /// - Omits the special Taylor series handling for z near 1 and 2
@@ -289,6 +329,94 @@ pub fn z_lgamma(z: f64) -> f64 {
     }
 
     lgam
+}
+
+/// Compute the regularised lower incomplete gamma function P(a, z)
+/// using a Taylor series expansion.
+///
+/// P(a, z) = (z^a · e^(-z)) / (a · Γ(a)) · Σ_{k=0}^∞ z^k / [(a+1)(a+2)···(a+k)]
+///
+/// Converges rapidly when z < a + 1 (the lower integral is the smaller quantity).
+/// Each successive term is the previous term multiplied by z / (a + k), so the
+/// ratio is less than 1 in this domain.
+///
+/// # Arguments
+/// * `a` - Shape parameter (a > 0)
+/// * `z` - Evaluation point (z > 0, typically z < a + 1)
+pub(crate) fn lower_gamma_series(a: f64, z: f64) -> f64 {
+    let ln_prefix: f64 = (a * z.ln()) - z - z_lgamma(a);
+
+    // Initialise variables
+    let mut k: f64 = 1.0;
+    let mut curr: f64 = 1.0;
+    let mut term: f64 = 1.0;
+
+    // Computing the Taylor series
+    while term > curr * f64::EPSILON {
+        term *= z / (a + k);
+        curr += term;
+        k += 1.0;
+    }
+
+    (ln_prefix.exp() * curr) / a
+}
+
+/// Compute the regularised upper incomplete gamma function Q(a, z)
+/// using Legendre's continued fraction representation, evaluated via
+/// the modified Lentz algorithm.
+///
+/// Q(a, z) = 1 - P(a, z) = (z^a · e^(-z)) / Γ(a) · 1/CF
+///
+/// where CF is the continued fraction with partial numerators
+/// a_k = k(a - k) and partial denominators b_k = z - a + 2k + 1.
+///
+/// Converges rapidly when z >= a + 1 (the upper integral is the smaller quantity).
+///
+/// # Arguments
+/// * `a` - Shape parameter (a > 0)
+/// * `z` - Evaluation point (z > 0, typically z >= a + 1)
+#[allow(non_snake_case)]
+#[allow(unused_assignments)]
+pub(crate) fn upper_gamma_cf(a: f64, z: f64) -> f64 {
+    let ln_prefix: f64 = (a * z.ln()) - z - z_lgamma(a);
+
+    // TINY constant for textbook Modified Lentz shock-absoption
+    const TINY: f64 = 1e-30;
+
+    // Initialise variables
+    // b_0 is guaranteed to be >= 2.0 due to domain split in z_pgamma_rs()
+    let mut k: f64 = 0.0;
+    let mut a_k: f64 = 0.0;
+    let mut b_k: f64 = z - a + 1.0;
+    let mut f: f64 = b_k;
+
+    let mut C: f64 = f;
+    let mut D: f64 = 0.0;
+    let mut del: f64 = 2.0;
+
+    while (del - 1.0).abs() > f64::EPSILON {
+        // Update Legendre's coefficients starting at iteration 1
+        k += 1.0;
+        a_k = k * (a - k);
+        b_k += 2.0;
+
+        // Lentz updates
+        D = b_k + (a_k * D);
+        if D.abs() < TINY {
+            D = TINY;
+        }
+
+        C = b_k + (a_k / C);
+        if C.abs() < TINY {
+            C = TINY;
+        }
+
+        D = D.recip();
+        del = C * D;
+        f *= del;
+    }
+
+    ln_prefix.exp() / f
 }
 
 // ============================================================
@@ -731,5 +859,177 @@ mod tests {
             .sum();
         // Should be close to 1, allowing for discretisation error
         assert!((sum - 1.0).abs() < 0.01, "Integral = {}", sum);
+    }
+
+    // --- z_pgamma_rs tests ---
+
+    #[test]
+    fn test_pgamma_exponential_cdf() {
+        // Gamma(1, rate) is Exponential(rate): CDF = 1 - exp(-rate * x)
+        let rate = 2.0;
+        for &x in &[0.1, 0.5, 1.0, 2.0, 5.0] {
+            let expected = 1.0 - f64::exp(-rate * x);
+            assert!(
+                (z_pgamma_rs(x, 1.0, rate) - expected).abs() < 1e-10,
+                "pgamma({}, 1, {}) = {}, expected {}",
+                x,
+                rate,
+                z_pgamma_rs(x, 1.0, rate),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn test_pgamma_integer_shape() {
+        // For integer shape n: P(X <= x) = 1 - e^(-x) * Σ_{k=0}^{n-1} x^k / k!
+        // Shape = 2, rate = 1: P = 1 - e^(-x)(1 + x)
+        let x = 3.0;
+        let expected = 1.0 - f64::exp(-x) * (1.0 + x);
+        assert!(
+            (z_pgamma_rs(x, 2.0, 1.0) - expected).abs() < 1e-10,
+            "pgamma(3, 2, 1) = {}, expected {}",
+            z_pgamma_rs(x, 2.0, 1.0),
+            expected
+        );
+
+        // Shape = 3, rate = 1: P = 1 - e^(-x)(1 + x + x²/2)
+        let expected3 = 1.0 - f64::exp(-x) * (1.0 + x + x * x / 2.0);
+        assert!(
+            (z_pgamma_rs(x, 3.0, 1.0) - expected3).abs() < 1e-10,
+            "pgamma(3, 3, 1) = {}, expected {}",
+            z_pgamma_rs(x, 3.0, 1.0),
+            expected3
+        );
+    }
+
+    #[test]
+    fn test_pgamma_known_values() {
+        // Cross-referenced with R's pgamma()
+        // pgamma(1, shape=2, rate=1) ≈ 0.2642411
+        assert!((z_pgamma_rs(1.0, 2.0, 1.0) - 0.26424111765711533).abs() < 1e-10);
+        // pgamma(5, shape=3, rate=1) ≈ 0.8753480
+        assert!((z_pgamma_rs(5.0, 3.0, 1.0) - 0.8753479805169189).abs() < 1e-10);
+        // pgamma(0.5, shape=0.5, rate=1) ≈ 0.6826895
+        assert!((z_pgamma_rs(0.5, 0.5, 1.0) - 0.6826894921370859).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_pgamma_both_branches() {
+        // Ensure the series branch and CF branch produce mathematically
+        // identical results at the exact crossover boundary (z = a + 1).
+        let shape = 5.0;
+        let z = 6.0; // Exactly shape + 1.0
+
+        // Manually route the exact same input through both algorithms
+        let p_series = lower_gamma_series(shape, z);
+        let p_cf = 1.0 - upper_gamma_cf(shape, z);
+
+        // They should match down to floating-point precision
+        assert!(
+            (p_series - p_cf).abs() < 1e-15,
+            "Mismatch at boundary! Series: {}, CF: {}",
+            p_series,
+            p_cf
+        );
+    }
+
+    #[test]
+    fn test_pgamma_rate_scaling() {
+        // pgamma(x, shape, rate) = pgamma(rate*x, shape, 1)
+        let x = 2.0;
+        let shape = 3.0;
+        let rate = 0.5;
+        let p1 = z_pgamma_rs(x, shape, rate);
+        let p2 = z_pgamma_rs(rate * x, shape, 1.0);
+        assert!((p1 - p2).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_pgamma_edge_cases() {
+        // P(0) = 0 for any valid shape and rate
+        assert_eq!(z_pgamma_rs(0.0, 2.0, 1.0), 0.0);
+        // Negative x → 0
+        assert_eq!(z_pgamma_rs(-1.0, 2.0, 1.0), 0.0);
+        // Infinity → 1
+        assert_eq!(z_pgamma_rs(f64::INFINITY, 2.0, 1.0), 1.0);
+    }
+
+    #[test]
+    fn test_pgamma_monotonicity() {
+        // CDF must be monotonically non-decreasing
+        let shape = 2.5;
+        let rate = 1.0;
+        let xs = [0.1, 0.5, 1.0, 2.0, 3.0, 5.0, 10.0, 20.0];
+        let ps: Vec<f64> = xs.iter().map(|&x| z_pgamma_rs(x, shape, rate)).collect();
+        for i in 1..ps.len() {
+            assert!(
+                ps[i] >= ps[i - 1],
+                "Non-monotonic: P({}) = {} < P({}) = {}",
+                xs[i],
+                ps[i],
+                xs[i - 1],
+                ps[i - 1]
+            );
+        }
+    }
+
+    #[test]
+    fn test_pgamma_bounds() {
+        // CDF must be in [0, 1]
+        let shapes = [0.1, 0.5, 1.0, 2.0, 5.0, 10.0];
+        let xs = [0.01, 0.1, 1.0, 5.0, 20.0, 100.0];
+        for &a in &shapes {
+            for &x in &xs {
+                let p = z_pgamma_rs(x, a, 1.0);
+                assert!(
+                    (0.0..=1.0).contains(&p),
+                    "Out of bounds: pgamma({}, {}, 1) = {}",
+                    x,
+                    a,
+                    p
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_pgamma_large_shape() {
+        // For large shape, gamma CDF is well-approximated near the mean
+        // Mean = shape/rate. pgamma(mean, shape, rate) should be near 0.5
+        let shape = 100.0;
+        let rate = 1.0;
+        let p_at_mean = z_pgamma_rs(shape / rate, shape, rate);
+        assert!(
+            (p_at_mean - 0.5).abs() < 0.05,
+            "pgamma(100, 100, 1) = {}, expected near 0.5",
+            p_at_mean
+        );
+    }
+
+    #[test]
+    fn test_pgamma_small_shape() {
+        // Small shape (< 1): density is concentrated near zero
+        // pgamma(0.01, 0.1, 1) should be substantial
+        let p = z_pgamma_rs(0.01, 0.1, 1.0);
+        assert!(p > 0.1, "Small shape: pgamma(0.01, 0.1, 1) = {}", p);
+    }
+
+    #[test]
+    fn test_pgamma_pdf_cdf_consistency() {
+        // Approximate derivative of CDF should equal PDF
+        let shape = 3.0;
+        let rate = 1.0;
+        let x = 2.0;
+        let h = 1e-7;
+        let numerical_pdf =
+            (z_pgamma_rs(x + h, shape, rate) - z_pgamma_rs(x - h, shape, rate)) / (2.0 * h);
+        let analytical_pdf = z_dgamma_rs(x, shape, rate, false);
+        assert!(
+            (numerical_pdf - analytical_pdf).abs() < 1e-5,
+            "CDF derivative {} vs PDF {}",
+            numerical_pdf,
+            analytical_pdf
+        );
     }
 }

@@ -14,7 +14,7 @@ The natural logarithm of the gamma function at z
 }
 \description{
 Uses a simplified adaptation of the Boost.Math C++ library's Lanczos
-approximation (lanczos13m53 parameter set, N=13, G≈6.0247), which is
+approximation (lanczos13m53 parameter set, N=13, G≈6.0247),
 optimised for IEEE 754 double-precision (f64) arithmetic. The coefficients
 are from the \code{lanczos_sum_expG_scaled} variant, which absorbs both the
 √(2π) constant and the e^G scaling factor into the rational polynomial,
@@ -26,7 +26,8 @@ P(z)/Q(z) via Horner's method with fused multiply-add (FMA) instructions,
 avoiding the catastrophic cancellation that can occur with the traditional
 alternating-sign summation formulation.
 
-Maximum approximation error: ~1.2 × 10⁻¹⁷ (near full f64 precision).
+Maximum approximation error: ~1.2 × 10⁻¹⁷ (near full f64 precision),
+except for inputs infinitesimally close to 1 and 2.
 
 Simplifications relative to the full Boost implementation:
 \itemize{
