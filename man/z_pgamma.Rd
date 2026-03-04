@@ -4,7 +4,7 @@
 \alias{z_pgamma}
 \title{Gamma cumulative distribution function}
 \usage{
-z_pgamma(x, shape, rate = NULL, scale = NULL)
+z_pgamma(x, shape, rate = NULL, scale = NULL, log.p = FALSE)
 }
 \arguments{
 \item{x}{A positive numeric value (quantile)}

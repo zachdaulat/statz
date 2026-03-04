@@ -5,7 +5,7 @@
 \title{Compute the Poisson cumulative distribution function P(X ≤ x)
 using log-space PMF evaluation for each term.}
 \usage{
-z_ppois_di(x, lambda)
+z_ppois_di(x, lambda, log_p)
 }
 \arguments{
 \item{x}{A non-negative integer count}

@@ -4,7 +4,7 @@
 \alias{z_pnorm}
 \title{Normal distribution cumulative distribution function}
 \usage{
-z_pnorm(x, mean = 0, sd = 1)
+z_pnorm(x, mean = 0, sd = 1, log.p = FALSE)
 }
 \arguments{
 \item{x}{A numeric value quantile}

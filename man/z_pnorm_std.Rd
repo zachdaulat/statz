@@ -7,7 +7,7 @@ using the Abramowitz and Stegun (1972, 10th ed.) equation 7.1.26
 error function approximation.
 Maximum absolute error: |ε| < 1.5 × 10⁻⁷}
 \usage{
-z_pnorm_std(z)
+z_pnorm_std(z, log_p)
 }
 \arguments{
 \item{z}{A z-score (standardised value)}

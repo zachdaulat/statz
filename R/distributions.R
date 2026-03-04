@@ -32,7 +32,7 @@ z_dnorm <- function(x, mean = 0, sd = 1, log = FALSE) {
 #' z_pnorm(1.96)           # ≈ 0.975
 #' z_pnorm(0)              # 0.5
 #' z_pnorm(100, 100, 15)   # ≈ 0.5
-z_pnorm <- function(x, mean = 0, sd = 1) {
+z_pnorm <- function(x, mean = 0, sd = 1, log.p = FALSE) {
   # Input validation
   if (!is.numeric(sd) || any(sd <= 0, na.rm = TRUE)) {
     rlang::abort("`sd` must be a positive numeric value.")
@@ -40,7 +40,7 @@ z_pnorm <- function(x, mean = 0, sd = 1) {
 
   # Compute z-score and call Rust backend
   z <- (x - mean) / sd
-  z_pnorm_std(z = z)
+  z_pnorm_std(z = z, log_p = log.p)
 }
 
 #' Poisson distribution probability mass function
@@ -73,7 +73,7 @@ z_dpois <- function(x, lambda, log = FALSE) {
 #'
 #' @return Cumulative probability of values <= x
 #' @export
-z_ppois <- function(x, lambda) {
+z_ppois <- function(x, lambda, log.p = FALSE) {
   # Input validation
   if (!is.numeric(x) || x < 0 || x != floor(x)) {
     rlang::abort("`x` must be a positive integer")
@@ -82,7 +82,7 @@ z_ppois <- function(x, lambda) {
     rlang::abort("`lambda` must be a positive numeric value")
   }
 
-  z_ppois_rec(x = x, lambda = lambda)
+  z_ppois_rec(x = x, lambda = lambda, log_p = log.p)
 }
 
 
@@ -169,7 +169,7 @@ z_dgamma <- function(x, shape, rate = NULL, scale = NULL, log = FALSE) {
 #' pgamma(2, shape = 3, rate = 1)
 #'
 #' z_pgamma(1, shape = 1, rate = 1)   # Exponential: 1 - exp(-1)
-z_pgamma <- function(x, shape, rate = NULL, scale = NULL) {
+z_pgamma <- function(x, shape, rate = NULL, scale = NULL, log.p = FALSE) {
   # Input validation
   if (!is.numeric(x)) {
     rlang::abort("`x` must be a numeric value")
@@ -196,5 +196,5 @@ z_pgamma <- function(x, shape, rate = NULL, scale = NULL) {
     }
   }
 
-  z_pgamma_rs(x = x, shape = shape, rate = rate)
+  z_pgamma_rs(x = x, shape = shape, rate = rate, log_p = log.p)
 }

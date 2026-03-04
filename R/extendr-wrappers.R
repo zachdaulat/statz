@@ -76,7 +76,7 @@ z_dnorm_rs <- function(x, mean, sd, log) .Call(wrap__z_dnorm_rs, x, mean, sd, lo
 #' @param z A z-score (standardised value)
 #' @return Cumulative probability Φ(z) = P(Z ≤ z) for Z ~ N(0,1)
 #' @export
-z_pnorm_std <- function(z) .Call(wrap__z_pnorm_std, z)
+z_pnorm_std <- function(z, log_p) .Call(wrap__z_pnorm_std, z, log_p)
 
 #' Compute the Poisson probability mass function P(X = x)
 #' using log-space arithmetic to avoid factorial overflow.
@@ -92,7 +92,7 @@ z_dpois_rs <- function(x, lambda, log) .Call(wrap__z_dpois_rs, x, lambda, log)
 #' @param lambda The rate parameter (λ > 0)
 #' @return The cumulative probability P(X ≤ x | λ)
 #' @export
-z_ppois_di <- function(x, lambda) .Call(wrap__z_ppois_di, x, lambda)
+z_ppois_di <- function(x, lambda, log_p) .Call(wrap__z_ppois_di, x, lambda, log_p)
 
 #' Compute the Poisson cumulative distribution function P(X ≤ x)
 #' using a recurrence relation: P(X = k) = P(X = k-1) · λ/k
@@ -100,7 +100,7 @@ z_ppois_di <- function(x, lambda) .Call(wrap__z_ppois_di, x, lambda)
 #' @param lambda The rate parameter (λ > 0)
 #' @return The cumulative probability P(X ≤ x | λ)
 #' @export
-z_ppois_rec <- function(x, lambda) .Call(wrap__z_ppois_rec, x, lambda)
+z_ppois_rec <- function(x, lambda, log_p) .Call(wrap__z_ppois_rec, x, lambda, log_p)
 
 #' Compute the natural logarithm of the gamma function, ln Γ(z).
 #'
@@ -177,7 +177,7 @@ z_dgamma_rs <- function(x, shape, rate, log) .Call(wrap__z_dgamma_rs, x, shape, 
 #' @param rate The rate parameter (β > 0)
 #' @return The cumulative probability P(X ≤ x | α, β)
 #' @export
-z_pgamma_rs <- function(x, shape, rate) .Call(wrap__z_pgamma_rs, x, shape, rate)
+z_pgamma_rs <- function(x, shape, rate, log_p) .Call(wrap__z_pgamma_rs, x, shape, rate, log_p)
 
 
 # nolint end
