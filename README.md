@@ -1,4 +1,4 @@
 # statz
-R package with Rust computational backend for statistics and data science — a pedagogical implementation of core statistical functions
+A pedagogical implementation of core statistical functions in R with Rust computational backend.
 
 Planned additions include basic linear algebra examples and spatial statistics tools.
