@@ -5,7 +5,7 @@
 \title{Compute the Poisson cumulative distribution function P(X ≤ x)
 using a recurrence relation: P(X = k) = P(X = k-1) · λ/k}
 \usage{
-z_ppois_rec(x, lambda, log_p)
+z_ppois_rec(x, lambda, lower_tail, log_p)
 }
 \arguments{
 \item{x}{A non-negative integer count}

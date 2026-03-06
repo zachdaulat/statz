@@ -4,7 +4,7 @@
 \alias{z_pgamma_rs}
 \title{Compute the gamma CDF: P(X <= x) for X ~ Gamma(shape, rate).}
 \usage{
-z_pgamma_rs(x, shape, rate, log_p)
+z_pgamma_rs(x, shape, rate, lower_tail, log_p)
 }
 \arguments{
 \item{x}{A positive numeric value (quantile)}

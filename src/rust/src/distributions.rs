@@ -49,7 +49,7 @@ pub fn z_dnorm_rs(x: f64, mean: f64, sd: f64, log: bool) -> f64 {
 /// @export
 #[extendr]
 #[allow(non_upper_case_globals)]
-pub fn z_pnorm_std(z: f64, log_p: bool) -> f64 {
+pub fn z_pnorm_std(z: f64, lower_tail: bool, log_p: bool) -> f64 {
     // Ask about need to reference variables z, t, u, and use of const
 
     if z.is_nan() {
@@ -86,9 +86,12 @@ pub fn z_pnorm_std(z: f64, log_p: bool) -> f64 {
     let erf: f64 = (1.0 - erfc).copysign(z);
 
     // Calulated in regular space
-    let cdf: f64 = (1.0 + erf) / 2.0;
+    let mut cdf: f64 = (1.0 + erf) / 2.0;
 
-    // Evaluating boolean for returning in log or regular space
+    // Evaluating tail boolean
+    cdf = if lower_tail { cdf } else { 1.0 - cdf };
+
+    // Evaluating log or regular space boolean
     if log_p {
         cdf.ln()
     } else {
@@ -146,7 +149,7 @@ pub fn z_ppois_di(x: i32, lambda: f64, log_p: bool) -> f64 {
 /// @export
 #[extendr]
 // Named rec for reference to exploiting its recurrence relation
-pub fn z_ppois_rec(x: i32, lambda: f64, log_p: bool) -> f64 {
+pub fn z_ppois_rec(x: i32, lambda: f64, lower_tail: bool, log_p: bool) -> f64 {
     let mut p = (-lambda).exp(); // P(X = 0)
     let mut cdf = p;
 
@@ -155,7 +158,10 @@ pub fn z_ppois_rec(x: i32, lambda: f64, log_p: bool) -> f64 {
         cdf += p;
     }
 
-    // Evaluating boolean for returning in log or regular space
+    // Evaluating tail boolean
+    cdf = if lower_tail { cdf } else { 1.0 - cdf };
+
+    // Evaluating log or regular space boolean
     if log_p {
         cdf.ln()
     } else {
@@ -218,18 +224,17 @@ pub fn z_dgamma_rs(x: f64, shape: f64, rate: f64, log: bool) -> f64 {
 /// @return The cumulative probability P(X ≤ x | α, β)
 /// @export
 #[extendr]
-pub fn z_pgamma_rs(x: f64, shape: f64, rate: f64, log_p: bool) -> f64 {
-    // 1. Check for R's specific NA_real_ first
+pub fn z_pgamma_rs(x: f64, shape: f64, rate: f64, lower_tail: bool, log_p: bool) -> f64 {
+    // Checking for R's specific NA_real_ first
     if x.is_na() || shape.is_na() || rate.is_na() {
         return f64::na(); // extendr bridges this back as NA_real_
     }
 
-    // 2. Check for mathematically undefined NaN
     if x.is_nan() || shape.is_nan() || rate.is_nan() {
         return f64::NAN; // extendr bridges this back as NaN
     }
 
-    // 3. Domain boundaries (Note: adjusted for log_p!)
+    // Domain boundaries (Note: adjusted for log_p)
     if x <= 0.0 {
         return if log_p { f64::NEG_INFINITY } else { 0.0 };
     }
@@ -237,14 +242,24 @@ pub fn z_pgamma_rs(x: f64, shape: f64, rate: f64, log_p: bool) -> f64 {
         return if log_p { 0.0 } else { 1.0 };
     }
 
-    // 4. Prepping z variable and dispatch logic assigning if/else to `cdf`
+    // Prepping z variable and dispatch logic assigning if/else to `cdf`
     // Calculated in regular space
     let z: f64 = rate * x;
 
     let cdf: f64 = if z < shape + 1.0 {
-        lower_gamma_series(shape, z)
+        let p: f64 = lower_gamma_series(shape, z);
+        if lower_tail {
+            p
+        } else {
+            1.0 - p
+        }
     } else {
-        1.0 - upper_gamma_cf(shape, z)
+        let q: f64 = upper_gamma_cf(shape, z);
+        if lower_tail {
+            1.0 - q
+        } else {
+            q
+        }
     };
 
     // 5. Log space return boolean argument check
@@ -592,34 +607,34 @@ mod tests {
     #[test]
     fn test_pnorm_at_zero() {
         // Φ(0) = 0.5 exactly
-        assert!((z_pnorm_std(0.0, false) - 0.5).abs() < 1e-7);
+        assert!((z_pnorm_std(0.0, true, false) - 0.5).abs() < 1e-7);
     }
 
     #[test]
     fn test_pnorm_symmetry() {
         // Φ(-z) = 1 - Φ(z)
         let z = 1.5;
-        assert!((z_pnorm_std(-z, false) - (1.0 - z_pnorm_std(z, false))).abs() < 1e-7);
+        assert!((z_pnorm_std(-z, true, false) - (1.0 - z_pnorm_std(z, true, false))).abs() < 1e-7);
     }
 
     #[test]
     fn test_pnorm_known_values() {
         // Known values from standard normal tables
         // Φ(1) ≈ 0.8413447
-        assert!((z_pnorm_std(1.0, false) - 0.841_344_7).abs() < 1e-6);
+        assert!((z_pnorm_std(1.0, true, false) - 0.841_344_7).abs() < 1e-6);
         // Φ(-1) ≈ 0.1586553
-        assert!((z_pnorm_std(-1.0, false) - 0.158_655_3).abs() < 1e-6);
+        assert!((z_pnorm_std(-1.0, true, false) - 0.158_655_3).abs() < 1e-6);
         // Φ(1.96) ≈ 0.9750021
-        assert!((z_pnorm_std(1.96, false) - 0.975_002_1).abs() < 1e-6);
+        assert!((z_pnorm_std(1.96, true, false) - 0.975_002_1).abs() < 1e-6);
         // Φ(3) ≈ 0.9986501
-        assert!((z_pnorm_std(3.0, false) - 0.998_650_1).abs() < 1e-6);
+        assert!((z_pnorm_std(3.0, true, false) - 0.998_650_1).abs() < 1e-6);
     }
 
     #[test]
     fn test_pnorm_edge_cases() {
-        assert_eq!(z_pnorm_std(f64::INFINITY, false), 1.0);
-        assert_eq!(z_pnorm_std(f64::NEG_INFINITY, false), 0.0);
-        assert!(z_pnorm_std(f64::NAN, false).is_nan());
+        assert_eq!(z_pnorm_std(f64::INFINITY, true, false), 1.0);
+        assert_eq!(z_pnorm_std(f64::NEG_INFINITY, true, false), 0.0);
+        assert!(z_pnorm_std(f64::NAN, true, false).is_nan());
     }
 
     // --- z_dpois_rs tests ---
@@ -903,11 +918,11 @@ mod tests {
         for &x in &[0.1, 0.5, 1.0, 2.0, 5.0] {
             let expected = 1.0 - f64::exp(-rate * x);
             assert!(
-                (z_pgamma_rs(x, 1.0, rate, false) - expected).abs() < 1e-10,
+                (z_pgamma_rs(x, 1.0, rate, true, false) - expected).abs() < 1e-10,
                 "pgamma({}, 1, {}) = {}, expected {}",
                 x,
                 rate,
-                z_pgamma_rs(x, 1.0, rate, false),
+                z_pgamma_rs(x, 1.0, rate, true, false),
                 expected
             );
         }
@@ -920,18 +935,18 @@ mod tests {
         let x = 3.0;
         let expected = 1.0 - f64::exp(-x) * (1.0 + x);
         assert!(
-            (z_pgamma_rs(x, 2.0, 1.0, false) - expected).abs() < 1e-10,
+            (z_pgamma_rs(x, 2.0, 1.0, true, false) - expected).abs() < 1e-10,
             "pgamma(3, 2, 1) = {}, expected {}",
-            z_pgamma_rs(x, 2.0, 1.0, false),
+            z_pgamma_rs(x, 2.0, 1.0, true, false),
             expected
         );
 
         // Shape = 3, rate = 1: P = 1 - e^(-x)(1 + x + x²/2)
         let expected3 = 1.0 - f64::exp(-x) * (1.0 + x + x * x / 2.0);
         assert!(
-            (z_pgamma_rs(x, 3.0, 1.0, false) - expected3).abs() < 1e-10,
+            (z_pgamma_rs(x, 3.0, 1.0, true, false) - expected3).abs() < 1e-10,
             "pgamma(3, 3, 1) = {}, expected {}",
-            z_pgamma_rs(x, 3.0, 1.0, false),
+            z_pgamma_rs(x, 3.0, 1.0, true, false),
             expected3
         );
     }
@@ -940,11 +955,11 @@ mod tests {
     fn test_pgamma_known_values() {
         // Cross-referenced with R's pgamma()
         // pgamma(1, shape=2, rate=1) ≈ 0.2642411
-        assert!((z_pgamma_rs(1.0, 2.0, 1.0, false) - 0.26424111765711533).abs() < 1e-10);
+        assert!((z_pgamma_rs(1.0, 2.0, 1.0, true, false) - 0.26424111765711533).abs() < 1e-10);
         // pgamma(5, shape=3, rate=1) ≈ 0.8753480
-        assert!((z_pgamma_rs(5.0, 3.0, 1.0, false) - 0.8753479805169189).abs() < 1e-10);
+        assert!((z_pgamma_rs(5.0, 3.0, 1.0, true, false) - 0.8753479805169189).abs() < 1e-10);
         // pgamma(0.5, shape=0.5, rate=1) ≈ 0.6826895
-        assert!((z_pgamma_rs(0.5, 0.5, 1.0, false) - 0.6826894921370859).abs() < 1e-9);
+        assert!((z_pgamma_rs(0.5, 0.5, 1.0, true, false) - 0.6826894921370859).abs() < 1e-9);
     }
 
     #[test]
@@ -973,19 +988,19 @@ mod tests {
         let x = 2.0;
         let shape = 3.0;
         let rate = 0.5;
-        let p1 = z_pgamma_rs(x, shape, rate, false);
-        let p2 = z_pgamma_rs(rate * x, shape, 1.0, false);
+        let p1 = z_pgamma_rs(x, shape, rate, true, false);
+        let p2 = z_pgamma_rs(rate * x, shape, 1.0, true, false);
         assert!((p1 - p2).abs() < 1e-12);
     }
 
     #[test]
     fn test_pgamma_edge_cases() {
         // P(0) = 0 for any valid shape and rate
-        assert_eq!(z_pgamma_rs(0.0, 2.0, 1.0, false), 0.0);
+        assert_eq!(z_pgamma_rs(0.0, 2.0, 1.0, true, false), 0.0);
         // Negative x → 0
-        assert_eq!(z_pgamma_rs(-1.0, 2.0, 1.0, false), 0.0);
+        assert_eq!(z_pgamma_rs(-1.0, 2.0, 1.0, true, false), 0.0);
         // Infinity → 1
-        assert_eq!(z_pgamma_rs(f64::INFINITY, 2.0, 1.0, false), 1.0);
+        assert_eq!(z_pgamma_rs(f64::INFINITY, 2.0, 1.0, true, false), 1.0);
     }
 
     #[test]
@@ -996,7 +1011,7 @@ mod tests {
         let xs = [0.1, 0.5, 1.0, 2.0, 3.0, 5.0, 10.0, 20.0];
         let ps: Vec<f64> = xs
             .iter()
-            .map(|&x| z_pgamma_rs(x, shape, rate, false))
+            .map(|&x| z_pgamma_rs(x, shape, rate, true, false))
             .collect();
         for i in 1..ps.len() {
             assert!(
@@ -1017,7 +1032,7 @@ mod tests {
         let xs = [0.01, 0.1, 1.0, 5.0, 20.0, 100.0];
         for &a in &shapes {
             for &x in &xs {
-                let p = z_pgamma_rs(x, a, 1.0, false);
+                let p = z_pgamma_rs(x, a, 1.0, true, false);
                 assert!(
                     (0.0..=1.0).contains(&p),
                     "Out of bounds: pgamma({}, {}, 1) = {}",
@@ -1035,7 +1050,7 @@ mod tests {
         // Mean = shape/rate. pgamma(mean, shape, rate) should be near 0.5
         let shape = 100.0;
         let rate = 1.0;
-        let p_at_mean = z_pgamma_rs(shape / rate, shape, rate, false);
+        let p_at_mean = z_pgamma_rs(shape / rate, shape, rate, true, false);
         assert!(
             (p_at_mean - 0.5).abs() < 0.05,
             "pgamma(100, 100, 1) = {}, expected near 0.5",
@@ -1047,7 +1062,7 @@ mod tests {
     fn test_pgamma_small_shape() {
         // Small shape (< 1): density is concentrated near zero
         // pgamma(0.01, 0.1, 1) should be substantial
-        let p = z_pgamma_rs(0.01, 0.1, 1.0, false);
+        let p = z_pgamma_rs(0.01, 0.1, 1.0, true, false);
         assert!(p > 0.1, "Small shape: pgamma(0.01, 0.1, 1) = {}", p);
     }
 
@@ -1058,8 +1073,8 @@ mod tests {
         let rate = 1.0;
         let x = 2.0;
         let h = 1e-7;
-        let numerical_pdf = (z_pgamma_rs(x + h, shape, rate, false)
-            - z_pgamma_rs(x - h, shape, rate, false))
+        let numerical_pdf = (z_pgamma_rs(x + h, shape, rate, true, false)
+            - z_pgamma_rs(x - h, shape, rate, true, false))
             / (2.0 * h);
         let analytical_pdf = z_dgamma_rs(x, shape, rate, false);
         assert!(

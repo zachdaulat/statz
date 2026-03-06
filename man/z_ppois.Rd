@@ -4,7 +4,7 @@
 \alias{z_ppois}
 \title{Poisson cumulative probability function}
 \usage{
-z_ppois(x, lambda, log.p = FALSE)
+z_ppois(x, lambda, lower.tail = TRUE, log.p = FALSE)
 }
 \arguments{
 \item{x}{A non-negative whole number}
