@@ -1,5 +1,18 @@
 use extendr_api::prelude::*;
 
+// Registering this module's functions
+extendr_module! {
+    mod descriptive;
+    fn z_sum;
+    fn z_mean;
+    fn z_median;
+    fn z_var;
+    fn z_sd;
+    fn z_cov;
+    fn z_cor;
+    fn z_cor_onepass;
+}
+
 /// Compute the sum of a numeric vector.
 /// @param x A numeric vector.
 /// @return The sum as a double.
@@ -50,7 +63,7 @@ pub fn z_var(x: &[f64]) -> f64 {
     if x.len() < 2 {
         return f64::NAN;
     }
-    let mean = z_mean(x);
+    let mean: f64 = z_mean(x);
     let n = x.len() as f64;
     x.iter().map(|&xi| (xi - mean).powi(2)).sum::<f64>() / (n - 1.0)
 }
@@ -74,9 +87,9 @@ pub fn z_cov(x: &[f64], y: &[f64]) -> f64 {
     if x.len() != y.len() || x.len() < 2 {
         return f64::NAN;
     }
-    let mean_x = z_mean(x);
-    let mean_y = z_mean(y);
-    let n = x.len() as f64;
+    let mean_x: f64 = z_mean(x);
+    let mean_y: f64 = z_mean(y);
+    let n: f64 = x.len() as f64;
     x.iter()
         .zip(y.iter())
         .map(|(&xi, &yi)| (xi - mean_x) * (yi - mean_y))
@@ -108,12 +121,12 @@ pub fn z_cor_onepass(x: &[f64], y: &[f64]) -> f64 {
         return f64::NAN;
     }
 
-    let n = x.len() as f64;
-    let mut sum_x = 0.0;
-    let mut sum_y = 0.0;
-    let mut sum_xy = 0.0;
-    let mut sum_x2 = 0.0;
-    let mut sum_y2 = 0.0;
+    let n: f64 = x.len() as f64;
+    let mut sum_x: f64 = 0.0;
+    let mut sum_y: f64 = 0.0;
+    let mut sum_xy: f64 = 0.0;
+    let mut sum_x2: f64 = 0.0;
+    let mut sum_y2: f64 = 0.0;
 
     for (&xi, &yi) in x.iter().zip(y.iter()) {
         sum_x += xi;
@@ -127,19 +140,6 @@ pub fn z_cor_onepass(x: &[f64], y: &[f64]) -> f64 {
     let denom = ((sum_x2 - (sum_x.powi(2) / n)) * (sum_y2 - (sum_y.powi(2) / n))).sqrt();
 
     numer / denom
-}
-
-// Registering this module's functions
-extendr_module! {
-    mod descriptive;
-    fn z_sum;
-    fn z_mean;
-    fn z_median;
-    fn z_var;
-    fn z_sd;
-    fn z_cov;
-    fn z_cor;
-    fn z_cor_onepass;
 }
 
 // Rust-side unit tests

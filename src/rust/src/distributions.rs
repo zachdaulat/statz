@@ -209,6 +209,10 @@ pub fn z_dgamma_rs(x: f64, shape: f64, rate: f64, log: bool) -> f64 {
     }
 }
 
+// ============================================================
+// Documentation for z_pgamma_rs
+// ============================================================
+
 /// Compute the gamma CDF: P(X <= x) for X ~ Gamma(shape, rate).
 ///
 /// Dispatches to `lower_gamma_series` (Taylor series for P) when the
@@ -744,7 +748,7 @@ mod tests {
     #[test]
     fn test_lgamma_near_one_and_two() {
         // Expected values generated via Wolfram Alpha: N[Log[Gamma[z]], 25]
-        // Tolerances set to 1e-11 to account for precision loss from catastrophic
+        // Tolerances set to 1e-7 to account for precision loss from catastrophic
         // cancellation near the roots, as the dedicated Taylor series expansions
         // were bypassed for general performance and to simply the adaptation.
 
