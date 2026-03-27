@@ -236,3 +236,75 @@ test_that("z_pgamma validates inputs correctly", {
   expect_error(z_pgamma(1, shape = -1, rate = 1))
   expect_error(z_pgamma(1, shape = 1, rate = 1, scale = 1))
 })
+
+test_that("z_dtweedie calculates exact zero mass correctly", {
+  # For y = 0, it should perfectly match the Poisson point mass
+  y <- 0
+  mu <- 2.5
+  phi <- 1.2
+  p <- 1.5
+
+  res_statz <- z_dtweedie(y, mu, phi, p, log = TRUE)
+  res_tweedie <- tweedie::dtweedie(y, mu = mu, phi = phi, power = p)
+
+  expect_equal(res_statz, log(res_tweedie), tolerance = 1e-10)
+})
+
+test_that("z_dtweedie handles mu = 0 fast path", {
+  # Point mass at 0
+  expect_equal(z_dtweedie(0, mu = 0, phi = 1, power = 1.5, log = FALSE), 1.0)
+  expect_equal(z_dtweedie(5, mu = 0, phi = 1, power = 1.5, log = FALSE), 0.0)
+})
+
+test_that("z_dtweedie Dunn-Smyth series matches CRAN tweedie package", {
+  # Test a spread of positive y values
+  y_vals <- c(0.1, 1.0, 2.5, 10.0)
+  mu <- 3.0
+  phi <- 1.5
+  p <- 1.6
+
+  res_statz <- purrr::map_dbl(y_vals, \(y) {
+    z_dtweedie(y, mu, phi, p, log = FALSE)
+  })
+  res_tweedie <- tweedie::dtweedie(y_vals, mu = mu, phi = phi, power = p)
+
+  # Tolerance is set to 1e-10 to account for the algorithmic difference
+  # between Dunn-Smyth series and Fourier inversion.
+  expect_equal(res_statz, res_tweedie, tolerance = 1e-10)
+})
+
+test_that("z_dtweedie evaluates correctly near the Poisson boundary (p -> 1)", {
+  y_vals <- c(0.1, 1.0, 5.0, 10.0)
+  mu <- 2.0
+  phi <- 1.0
+  p <- 1.05
+
+  # p = 1.05 is highly discrete, testing loop efficiency
+  res_statz <- purrr::map_dbl(y_vals, \(y) {
+    z_dtweedie(y, mu = mu, phi = phi, power = p, log = FALSE)
+  })
+  res_tweedie <- tweedie::dtweedie(y_vals, mu = mu, phi = phi, power = p)
+
+  expect_equal(res_statz, res_tweedie, tolerance = 1e-14)
+})
+
+test_that("z_dtweedie evaluates correctly near the Gamma boundary (p -> 2)", {
+  y_vals <- c(0.1, 1.0, 5.0, 10.0)
+  mu <- 2.0
+  phi <- 1.0
+  p <- 1.95
+
+  # p = 1.95 is highly continuous, testing extreme Gamma shapes
+  res_statz <- purrr::map_dbl(y_vals, \(y) {
+    z_dtweedie(y, mu = mu, phi = phi, power = p, log = FALSE)
+  })
+  res_tweedie <- tweedie::dtweedie(y_vals, mu = mu, phi = phi, power = p)
+
+  expect_equal(res_statz, res_tweedie, tolerance = 1e-10)
+})
+
+test_that("z_dtweedie wrapper blocks degenerate power parameters", {
+  expect_error(z_dtweedie(1, 2, 1, power = 1.0), "strictly between 1 and 2")
+  expect_error(z_dtweedie(1, 2, 1, power = 2.0), "strictly between 1 and 2")
+  expect_error(z_dtweedie(1, 2, 1, power = 0.5), "strictly between 1 and 2")
+})

@@ -13,6 +13,7 @@ extendr_module! {
     fn z_lgamma;
     fn z_dgamma_rs;
     fn z_pgamma_rs;
+    fn z_dtweedie_rs;
 }
 
 // Planned functions:
@@ -274,6 +275,55 @@ pub fn z_pgamma_rs(x: f64, shape: f64, rate: f64, lower_tail: bool, log_p: bool)
     }
 }
 
+// ============================================================
+// Documentation for z_dtweedie_rs
+// ============================================================
+
+/// Computing the Tweedie PDF (compound Poisson-Gamma)
+/// Internal Rust engine for the Tweedie density.
+/// Assumes all inputs (y, mu, phi, power) have been pre-validated by the R wrapper.
+/// - `y < 0` is not handled here (should be blocked by R).
+/// - Automatically routes exact zeros to point-mass fast paths.
+/// - Uses the Dunn & Smyth (2005) series expansion for y > 0.
+
+#[extendr]
+pub fn z_dtweedie_rs(y: f64, mu: f64, phi: f64, power: f64, log: bool) -> f64 {
+    // Fast path when mu = 0
+    if mu == 0.0 {
+        return if y == 0.0 {
+            // When mu = 0 and y = 0
+            if log {
+                0.0
+            } else {
+                1.0
+            }
+        } else {
+            // When mu = 0 and y > 0
+            if log {
+                f64::NEG_INFINITY
+            } else {
+                0.0
+            }
+        };
+    }
+
+    // Organize parameter sets
+    let tw_params = TwParams { mu, phi, power };
+    let PgParams {
+        lambda,
+        shape,
+        rate,
+    } = tw_params.to_pg();
+
+    // Fast path when y = 0 but mu > 0
+    // Just the Poisson mass at 0
+    if y == 0.0 && mu > 0.0 {
+        return z_dpois_rs(0, lambda, log);
+    }
+
+    ds_series(y, lambda, shape, rate, log)
+}
+
 // -------------------- Convenience Functions -------------------
 
 // ============================================================
@@ -469,6 +519,194 @@ pub(crate) fn upper_gamma_cf(a: f64, z: f64) -> f64 {
     }
 
     ln_prefix.exp() / f
+}
+
+// ------------- Tweedie Convenience Structs, Methods, & Functions -------------
+
+// Tweedie parameters struct
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TwParams {
+    pub mu: f64,
+    pub phi: f64,
+    pub power: f64,
+}
+
+#[allow(unused)]
+impl TwParams {
+    // Smart Constructor might be unnecessary with R-level input validation
+    // I can consider removing
+    // Smart constructor ensuring valid Tweedie parameters
+    pub fn new(mu: f64, phi: f64, power: f64) -> std::result::Result<Self, &'static str> {
+        if mu <= 0.0 {
+            return Err("mu (mean) must be greater than 0");
+        }
+        if phi <= 0.0 {
+            return Err("phi (dispersion) must be greater than 0");
+        }
+        if power <= 1.0 || power >= 2.0 {
+            return Err("power parameter 'p' must be in the open interval (1, 2)");
+        }
+
+        Ok(TwParams { mu, phi, power })
+    }
+
+    // Tweedie to Poisson-Gamma parameter conversion
+    pub fn to_pg(self) -> PgParams {
+        // Extracting Tweedie parameters
+        let TwParams { mu, phi, power } = self;
+
+        let lambda = mu.powf(2.0 - power) / (phi * (2.0 - power));
+        let shape = (2.0 - power) / (power - 1.0);
+        let rate = mu.powf(1.0 - power) / (phi * (power - 1.0));
+
+        PgParams {
+            lambda,
+            shape,
+            rate,
+        }
+    }
+}
+
+// Poisson-Gamma parameters struct
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PgParams {
+    pub lambda: f64,
+    pub shape: f64,
+    pub rate: f64,
+}
+
+#[allow(unused)]
+impl PgParams {
+    // Smart Constructor might be unnecessary with R-level input validation
+    // I can consider removing
+    // Smart constructor ensuring valid Poisson-Gamma parameters
+    pub fn new(lambda: f64, shape: f64, rate: f64) -> std::result::Result<Self, &'static str> {
+        if lambda <= 0.0 {
+            return Err("lambda must be > 0");
+        }
+        if shape <= 0.0 {
+            return Err("shape must be > 0");
+        }
+        if rate <= 0.0 {
+            return Err("rate must be > 0");
+        }
+
+        Ok(PgParams {
+            lambda,
+            shape,
+            rate,
+        })
+    }
+
+    // Poisson-Gamma to Tweedie parameter conversion
+    pub fn to_tw(self) -> TwParams {
+        // Extracting Poisson-Gamma parameters
+        let PgParams {
+            lambda,
+            shape,
+            rate,
+        } = self;
+
+        let mu = lambda * shape / rate;
+        let power = (shape + 2.0) / (shape + 1.0);
+        let phi = (lambda.powf(1.0 - power) * (shape / rate).powf(2.0 - power)) / (2.0 - power);
+
+        TwParams { mu, phi, power }
+    }
+}
+
+// Helper function for evaluating a series sum with high dynamic range
+pub(crate) fn log_sum_exp(l_terms: &[f64], log: bool) -> f64 {
+    // Empty slice safety check
+    if l_terms.is_empty() {
+        return if log { f64::NEG_INFINITY } else { 0.0 };
+    }
+    // Finding max element
+    // Must copy because reduce and max require owned data
+    // .unwrap() is safe because of .is_empty() check above
+    let l_max: f64 = l_terms.iter().copied().reduce(f64::max).unwrap();
+    // Subtract max l from each log term l_k
+    let l_sum: f64 = l_terms.iter().map(|l_k| (l_k - l_max).exp()).sum::<f64>();
+
+    if log {
+        l_max + l_sum.ln()
+    } else {
+        l_max.exp() * l_sum
+    }
+}
+
+// Dunn-Smyth Series helper function, Tweedie density for y > 0
+pub(crate) fn ds_series(y: f64, lambda: f64, shape: f64, rate: f64, log: bool) -> f64 {
+    // 1: Starting index and log-likelihood
+    let k_0: f64 = lambda.floor().max(1.0);
+    let l_0: f64 = z_dpois_rs(k_0 as i32, lambda, true) + z_dgamma_rs(y, k_0 * shape, rate, true);
+
+    // Evaluating just the right side finding gradient direction
+    let k_p1: f64 = k_0 + 1.0;
+    let l_p1: f64 =
+        z_dpois_rs(k_p1 as i32, lambda, true) + z_dgamma_rs(y, k_p1 * shape, rate, true);
+
+    // 2: Gradient setting the step direction to find max
+    let step: f64 = if l_p1 > l_0 { 1.0 } else { -1.0 };
+    let mut k_prev: f64 = if step > 0.0 { k_0 } else { k_p1 };
+    let mut k_curr: f64 = if step > 0.0 { k_p1 } else { k_0 };
+    let mut l_prev: f64 = if step > 0.0 { l_0 } else { l_p1 };
+    let mut l_curr: f64 = if step > 0.0 { l_p1 } else { l_0 };
+
+    // 3: Core maximum finding hill-climb loop
+    // Max will be at k_prev when loop ends
+    while l_curr > l_prev {
+        k_prev = k_curr; // Storing the max
+        l_prev = l_curr;
+
+        // Update running index with step with safety break
+        k_curr += step;
+        if k_curr < 1.0 {
+            break;
+        }
+
+        l_curr =
+            z_dpois_rs(k_curr as i32, lambda, true) + z_dgamma_rs(y, k_curr * shape, rate, true);
+    }
+    let k_max = k_prev;
+    let l_max = l_prev;
+
+    // 4: Initialise vector and collect terms
+    let mut l_terms: Vec<f64> = Vec::with_capacity(1024);
+    l_terms.push(l_max);
+
+    // Defining term size limit
+    let lim: f64 = l_max + f64::EPSILON.ln();
+
+    // Reverse loop
+    while l_prev > lim && k_prev > 1.0 {
+        let k_curr = k_prev - 1.0;
+        let l_curr =
+            z_dpois_rs(k_curr as i32, lambda, true) + z_dgamma_rs(y, k_curr * shape, rate, true);
+
+        // Add term to vector and update
+        l_terms.push(l_curr);
+        k_prev = k_curr;
+        l_prev = l_curr;
+    }
+
+    // Reset indices to max
+    k_prev = k_max;
+    l_prev = l_max;
+    // Grow vector in forward direction
+    while l_prev > lim {
+        let k_curr = k_prev + 1.0;
+        let l_curr =
+            z_dpois_rs(k_curr as i32, lambda, true) + z_dgamma_rs(y, k_curr * shape, rate, true);
+
+        // Add term to vector and update
+        l_terms.push(l_curr);
+        k_prev = k_curr;
+        l_prev = l_curr;
+    }
+
+    // 5: Evaluate log-sum-exp
+    log_sum_exp(&l_terms, log)
 }
 
 // ============================================================
@@ -1087,5 +1325,114 @@ mod tests {
             numerical_pdf,
             analytical_pdf
         );
+    }
+
+    // --- Tweedie Parameter Conversion Tests ---
+
+    #[test]
+    fn test_tw_to_pg_shape_special_case() {
+        // For the Tweedie distribution, when p = 1.5, the underlying Gamma shape
+        // parameter α = (2 - p) / (p - 1) evaluates to 0.5 / 0.5 = 1.0.
+        // This means the Gamma severities simplify to Exponential severities.
+        let tw = TwParams::new(5.0, 2.0, 1.5).expect("Valid parameters");
+        let pg = tw.to_pg();
+
+        assert!((pg.shape - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_tw_pg_round_trip() {
+        // Define arbitrary valid Tweedie parameters
+        let orig_mu = 10.0;
+        let orig_phi = 1.5;
+        let orig_power = 1.7;
+
+        let tw = TwParams::new(orig_mu, orig_phi, orig_power).expect("Valid parameters");
+
+        // Convert to Poisson-Gamma
+        let pg = tw.to_pg();
+
+        // 1. Verify the specific algebraic relationship: E[Y] = μ = λ * (α / β)
+        let expected_mu = pg.lambda * (pg.shape / pg.rate);
+        assert!((expected_mu - orig_mu).abs() < 1e-10);
+
+        // 2. Verify the full reverse conversion back to Tweedie
+        let tw_recovered = pg.to_tw();
+        assert!((tw_recovered.mu - orig_mu).abs() < 1e-10);
+        assert!((tw_recovered.phi - orig_phi).abs() < 1e-10);
+        assert!((tw_recovered.power - orig_power).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_tw_smart_constructor_validation() {
+        // Ensure the smart constructor rejects mathematically invalid parameters
+        assert!(
+            TwParams::new(0.0, 1.0, 1.5).is_err(),
+            "Should reject μ <= 0"
+        );
+        assert!(
+            TwParams::new(1.0, 0.0, 1.5).is_err(),
+            "Should reject φ <= 0"
+        );
+        assert!(
+            TwParams::new(1.0, 1.0, 1.0).is_err(),
+            "Should reject p = 1 (Poisson degenerate)"
+        );
+        assert!(TwParams::new(1.0, 1.0, 2.5).is_err(), "Should reject p > 2");
+    }
+
+
+    // --- Log-Sum-Exp Tests ---
+
+    #[test]
+    fn test_log_sum_exp_basic() {
+        let terms = vec![0.0, 0.0];
+        // ln(exp(0) + exp(0)) = ln(2)
+        assert!((log_sum_exp(&terms, true) - std::f64::consts::LN_2).abs() < 1e-15);
+    }
+    
+    #[test]
+    fn test_log_sum_exp_empty() {
+        // Empty slice should cleanly return -Inf in log space
+        let empty: Vec<f64> = vec![];
+        assert_eq!(log_sum_exp(&empty, true), f64::NEG_INFINITY);
+    }
+
+    #[test]
+    fn test_log_sum_exp_underflow_prevention() {
+        // If we didn't factor out the max, exp(-1000) would instantly underflow to 0.0,
+        // and the log of the sum would be -Inf. 
+        // Factoring out the max allows this to calculate correctly.
+        let terms = vec![-1000.0, -1000.0];
+        // ln(exp(-1000) + exp(-1000)) = ln(2 * exp(-1000)) = ln(2) - 1000
+        let expected = std::f64::consts::LN_2 - 1000.0;
+        assert!((log_sum_exp(&terms, true) - expected).abs() < 1e-14);
+    }
+
+    // --- Tweedie Engine Tests ---
+
+    #[test]
+    fn test_ds_series_terminates() {
+        // Simply verifies the hill-climb and expansion loops do not infinite-loop
+        // and that they return a valid, finite f64 value.
+        let val = ds_series(2.5, 1.5, 1.0, 1.0, true);
+        assert!(val.is_finite());
+    }
+
+    #[test]
+    fn test_dtweedie_fast_paths() {
+        // Fast Path 1: mu = 0, y = 0 -> Probability 1.0 (log = 0.0)
+        assert_eq!(z_dtweedie_rs(0.0, 0.0, 1.0, 1.5, true), 0.0);
+        
+        // Fast Path 1b: mu = 0, y > 0 -> Probability 0.0 (log = -Inf)
+        assert_eq!(z_dtweedie_rs(2.0, 0.0, 1.0, 1.5, true), f64::NEG_INFINITY);
+
+        // Fast Path 2: y = 0, mu > 0 -> Poisson point mass
+        // For mu = 5, p = 1.5, phi = 2.0 -> lambda = 5^(0.5) / (2 * 0.5) = sqrt(5)
+        let lambda = 5.0_f64.powf(0.5) / 1.0;
+        let expected_log_prob = -lambda; // Since Poisson(0; lambda) = e^-lambda
+        
+        let calc = z_dtweedie_rs(0.0, 5.0, 2.0, 1.5, true);
+        assert!((calc - expected_log_prob).abs() < 1e-14);
     }
 }

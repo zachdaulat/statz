@@ -169,7 +169,14 @@ z_dgamma <- function(x, shape, rate = NULL, scale = NULL, log = FALSE) {
 #' pgamma(2, shape = 3, rate = 1)
 #'
 #' z_pgamma(1, shape = 1, rate = 1)   # Exponential: 1 - exp(-1)
-z_pgamma <- function(x, shape, rate = NULL, scale = NULL, lower.tail = TRUE, log.p = FALSE) {
+z_pgamma <- function(
+  x,
+  shape,
+  rate = NULL,
+  scale = NULL,
+  lower.tail = TRUE,
+  log.p = FALSE
+) {
   # Input validation
   if (!is.numeric(x)) {
     rlang::abort("`x` must be a numeric value")
@@ -196,5 +203,51 @@ z_pgamma <- function(x, shape, rate = NULL, scale = NULL, lower.tail = TRUE, log
     }
   }
 
-  z_pgamma_rs(x = x, shape = shape, rate = rate, lower_tail = lower.tail, log_p = log.p)
+  z_pgamma_rs(
+    x = x,
+    shape = shape,
+    rate = rate,
+    lower_tail = lower.tail,
+    log_p = log.p
+  )
+}
+
+#' Tweedie distribution probability density function
+#'
+#' Computes the density f(y) for a Tweedie random variable using the
+#' Dunn & Smyth (2005) series expansion. This implementation is currently
+#' parameterised strictly for the compound Poisson-gamma case where 1 < p < 2.
+#'
+#' @param y A numeric value of a quantile (y >= 0).
+#' @param mu The mean parameter (μ >= 0).
+#' @param phi The dispersion parameter (φ > 0).
+#' @param power The variance power parameter (1 < p < 2).
+#' @param log Logical; if TRUE, probabilities p are given as log(p).
+#'
+#' @return A numeric vector of densities.
+#' @export
+#'
+#' @examples
+#' z_dtweedie(y = 1.5, mu = 2, phi = 1, power = 1.5)
+z_dtweedie <- function(y, mu, phi, power, log = FALSE) {
+  # Input validation
+  if (!is.numeric(y) || any(y < 0, na.rm = TRUE)) {
+    rlang::abort("`y` must be a numeric vector with values >= 0.")
+  }
+
+  if (!is.numeric(mu) || length(mu) != 1 || mu < 0) {
+    rlang::abort("`mu` must be a single numeric value >= 0.")
+  }
+
+  if (!is.numeric(phi) || length(phi) != 1 || phi <= 0) {
+    rlang::abort("`phi` must be a single positive numeric value.")
+  }
+
+  if (!is.numeric(power) || length(power) != 1 || power <= 1 || power >= 2) {
+    rlang::abort(
+      "`power` must be strictly between 1 and 2 for this compound Poisson-gamma implementation."
+    )
+  }
+
+  z_dtweedie_rs(y = y, mu = mu, phi = phi, power = power, log = log)
 }

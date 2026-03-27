@@ -179,5 +179,13 @@ z_dgamma_rs <- function(x, shape, rate, log) .Call(wrap__z_dgamma_rs, x, shape, 
 #' @export
 z_pgamma_rs <- function(x, shape, rate, lower_tail, log_p) .Call(wrap__z_pgamma_rs, x, shape, rate, lower_tail, log_p)
 
+#' Computing the Tweedie PDF (compound Poisson-Gamma)
+#' Internal Rust engine for the Tweedie density.
+#' Assumes all inputs (y, mu, phi, power) have been pre-validated by the R wrapper.
+#' - `y < 0` is not handled here (should be blocked by R).
+#' - Automatically routes exact zeros to point-mass fast paths.
+#' - Uses the Dunn & Smyth (2005) series expansion for y > 0.
+z_dtweedie_rs <- function(y, mu, phi, power, log) .Call(wrap__z_dtweedie_rs, y, mu, phi, power, log)
+
 
 # nolint end

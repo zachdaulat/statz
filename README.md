@@ -18,6 +18,7 @@ This is an in-development project intended to be a structured and focused but ex
     - [Poisson Distribution](#poisson-distribution)
     - [Gamma Distribution](#gamma-distribution)
     - [Tweedie Distribution *(in progress)*](#tweedie-distribution-in-progress)
+    - [Inverse Gaussian Distribution](#inverse-gaussian-distribution-in-progress)
 - [Planned Work](#planned-work)
   - [Part 3 — Linear Models](#part-3)
   - [Part 4 — Generalised Linear Models](#part-4)
@@ -114,7 +115,7 @@ Basic sample statistics implemented in Rust, using Bessel's correction (*n* − 
 
 ### <a id="part-2"></a>Part 2 — Probability Distributions
 
-Following R’s standard naming convention, the package implements density/mass and cumulative probability distribution functions using the `d*` (density/mass) and `p*` (distribution) prefixes. R wrappers provide input validation and, where applicable, dual parameterisation (e.g., `rate` and `scale` for the gamma distribution). All density/mass computations use log-space arithmetic to avoid overflow.
+Following R’s standard naming convention, the package implements density/mass and cumulative probability distribution functions using the `d*` (density/mass) and `p*` (CDF) prefixes. R wrappers provide input validation and, where applicable, dual parameterisation (e.g., `rate` and `scale` for the gamma distribution). All density/mass computations use log-space arithmetic to avoid overflow.
 
 The probability density/mass functions accept a `log` argument to return the log-density/log-probability directly, and the CDF functions accept a `log.p` argument to return cumulative log-probabilities. The CDF functions also accept a `lower.tail` argument; when `FALSE`, the upper tail probability is returned.
 
@@ -225,6 +226,10 @@ The Tweedie family is the final milestone of the distributions part. It is param
      - The Dunn & Smyth series evaluation for the Tweedie density (if implementing dtweedie)
      - This is the conceptual bridge to the GLM phase: the Tweedie family unifies the fitting procedure via IRLS
 -->
+
+#### Inverse Gaussian Distribution *(in progress)*
+
+Rounding out the Tweedie Family, I will implement the PDF and CDF functions for the Inverse Gaussian distribution as well. Falls under the Tweedie family special case where the power parameter $p = 3$. 
 
 ## Planned Work
 
