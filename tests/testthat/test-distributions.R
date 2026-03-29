@@ -237,6 +237,8 @@ test_that("z_pgamma validates inputs correctly", {
   expect_error(z_pgamma(1, shape = 1, rate = 1, scale = 1))
 })
 
+# ------------- Tweedie Distribution Tests -----------------
+
 test_that("z_dtweedie calculates exact zero mass correctly", {
   # For y = 0, it should perfectly match the Poisson point mass
   y <- 0
@@ -307,4 +309,108 @@ test_that("z_dtweedie wrapper blocks degenerate power parameters", {
   expect_error(z_dtweedie(1, 2, 1, power = 1.0), "strictly between 1 and 2")
   expect_error(z_dtweedie(1, 2, 1, power = 2.0), "strictly between 1 and 2")
   expect_error(z_dtweedie(1, 2, 1, power = 0.5), "strictly between 1 and 2")
+})
+
+# --- Tweedie CDF (z_ptweedie) Tests ---
+
+test_that("z_ptweedie enforces strict input validation and blocks NA", {
+  # y constraints
+  expect_error(z_ptweedie(-1, 2, 1, 1.5), ">= 0")
+  expect_error(z_ptweedie(NA_real_, 2, 1, 1.5), "single numeric value")
+  expect_error(z_ptweedie(c(1, 2), 2, 1, 1.5), "single numeric value") # Blocks vectors
+
+  # Parameter constraints
+  expect_error(z_ptweedie(1, -2, 1, 1.5), ">= 0")
+  expect_error(z_ptweedie(1, 2, 0, 1.5), "positive numeric")
+  expect_error(z_ptweedie(1, 2, 1, NA_real_), "strictly between 1 and 2")
+
+  # Degenerate boundaries
+  expect_error(z_ptweedie(1, 2, 1, 1.0), "strictly between 1 and 2")
+  expect_error(z_ptweedie(1, 2, 1, 2.0), "strictly between 1 and 2")
+})
+
+test_that("z_ptweedie handles exact point mass fast paths", {
+  # mu = 0: All mass is at exactly 0.
+  # For any y >= 0, cumulative probability is 1.0 (lower) or 0.0 (upper)
+  expect_equal(
+    z_ptweedie(5.0, mu = 0, phi = 1, power = 1.5, lower.tail = TRUE),
+    1.0
+  )
+  expect_equal(
+    z_ptweedie(5.0, mu = 0, phi = 1, power = 1.5, lower.tail = FALSE),
+    0.0
+  )
+  expect_equal(z_ptweedie(5.0, mu = 0, phi = 1, power = 1.5, log.p = TRUE), 0.0) # ln(1) = 0
+
+  # y = 0, mu > 0: Should exactly match the Poisson probability of 0 events
+  # lambda = mu^(2-p) / (phi * (2-p))
+  mu <- 3.0
+  phi <- 1.5
+  p <- 1.6
+  lambda <- (mu^(2 - p)) / (phi * (2 - p))
+  expected_p0 <- exp(-lambda)
+
+  expect_equal(z_ptweedie(0, mu, phi, p, lower.tail = TRUE), expected_p0)
+  expect_equal(z_ptweedie(0, mu, phi, p, lower.tail = FALSE), 1.0 - expected_p0)
+})
+
+test_that("z_ptweedie upper and lower tails complement perfectly", {
+  # Test the mathematical invariant: F(y) + S(y) = 1
+  y <- 2.5
+  mu <- 3.0
+  phi <- 1.5
+  p <- 1.6
+
+  p_lower <- z_ptweedie(y, mu, phi, p, lower.tail = TRUE)
+  p_upper <- z_ptweedie(y, mu, phi, p, lower.tail = FALSE)
+
+  expect_equal(p_lower + p_upper, 1.0)
+
+  # Check log transformations
+  expect_equal(
+    z_ptweedie(y, mu, phi, p, lower.tail = TRUE, log.p = TRUE),
+    log(p_lower)
+  )
+})
+
+test_that("z_ptweedie Dunn-Smyth series matches CRAN tweedie package", {
+  # Standard parameterization
+  y_vals <- c(0.1, 1.0, 2.5, 10.0)
+  mu <- 3.0
+  phi <- 1.5
+  p <- 1.6
+
+  # Use map_dbl because z_ptweedie currently strictly expects scalars
+  res_statz <- purrr::map_dbl(y_vals, \(y) {
+    z_ptweedie(y, mu, phi, p, lower.tail = TRUE)
+  })
+  res_tweedie <- tweedie::ptweedie(y_vals, mu = mu, phi = phi, power = p)
+
+  # CDFs are generally more stable than PDFs, so 1e-6 is a very safe tolerance
+  expect_equal(res_statz, res_tweedie, tolerance = 1e-6)
+})
+
+test_that("z_ptweedie evaluates correctly near the boundaries (p -> 1 and p -> 2)", {
+  y_vals <- c(0.1, 1.0, 5.0)
+  mu <- 2.0
+  phi <- 1.0
+
+  # Near Poisson boundary
+  res_statz_pois <- purrr::map_dbl(y_vals, \(y) {
+    z_ptweedie(y, mu, phi, power = 1.05)
+  })
+  res_tweedie_pois <- tweedie::ptweedie(
+    y_vals,
+    mu = mu,
+    phi = phi,
+    power = 1.05
+  )
+  expect_equal(res_statz_pois, res_tweedie_pois, tolerance = 1e-5)
+
+  # Near Gamma boundary
+  res_statz_gam <- purrr::map_dbl(y_vals, \(y) {
+    z_ptweedie(y, mu, phi, power = 1.95)
+  })
+  res_tweedie_gam <- tweedie::ptweedie(y_vals, mu = mu, phi = phi, power = 1.95)
+  expect_equal(res_statz_gam, res_tweedie_gam, tolerance = 1e-5)
 })

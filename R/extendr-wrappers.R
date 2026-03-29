@@ -187,5 +187,14 @@ z_pgamma_rs <- function(x, shape, rate, lower_tail, log_p) .Call(wrap__z_pgamma_
 #' - Uses the Dunn & Smyth (2005) series expansion for y > 0.
 z_dtweedie_rs <- function(y, mu, phi, power, log) .Call(wrap__z_dtweedie_rs, y, mu, phi, power, log)
 
+#' Computing the Tweedie CDF (compound Poisson-Gamma)
+#' Internal Rust engine for the Tweedie cumulative distribution.
+#' Assumes all inputs (y, mu, phi, power) have been pre-validated by the R wrapper.
+#' - `y < 0` is not handled here (should be blocked by R).
+#' - Automatically routes exact zeros to point-mass fast paths.
+#' - Uses the Dunn & Smyth (2005) series expansion for y > 0.
+#' - Supports `lower_tail` and `log_p` evaluation.
+z_ptweedie_rs <- function(y, mu, phi, power, lower_tail, log_p) .Call(wrap__z_ptweedie_rs, y, mu, phi, power, lower_tail, log_p)
+
 
 # nolint end

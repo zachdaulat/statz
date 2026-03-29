@@ -231,7 +231,7 @@ z_pgamma <- function(
 #' z_dtweedie(y = 1.5, mu = 2, phi = 1, power = 1.5)
 z_dtweedie <- function(y, mu, phi, power, log = FALSE) {
   # Input validation
-  if (!is.numeric(y) || any(y < 0, na.rm = TRUE)) {
+  if (!is.numeric(y) || any(y < 0, is.na(y) == TRUE)) {
     rlang::abort("`y` must be a numeric vector with values >= 0.")
   }
 
@@ -250,4 +250,58 @@ z_dtweedie <- function(y, mu, phi, power, log = FALSE) {
   }
 
   z_dtweedie_rs(y = y, mu = mu, phi = phi, power = power, log = log)
+}
+
+#' Tweedie distribution cumulative distribution function
+#'
+#' Computes the cumulative probability F(y) for a Tweedie random variable using the
+#' Dunn & Smyth (2005) series expansion. This implementation is currently
+#' parameterised strictly for the compound Poisson-gamma case where 1 < p < 2.
+#'
+#' @param y A numeric quantile (y >= 0). Currently only accepts scalars.
+#' @param mu The mean parameter (μ >= 0).
+#' @param phi The dispersion parameter (φ > 0).
+#' @param power The variance power parameter (1 < p < 2).
+#' @param lower.tail Logical; if TRUE (default) probabilities are P(Y < y), otherwise, P(Y > y).
+#' @param log.p Logical; if TRUE, probabilities p are given as ln(p).
+#'
+#' @return A numeric scalar of the cumulative probability.
+#' @export
+#'
+#' @examples
+#' z_ptweedie(y = 1.5, mu = 2, phi = 1, power = 1.5)
+z_ptweedie <- function(y, mu, phi, power, lower.tail = TRUE, log.p = FALSE) {
+  # Input validation for scalars
+  if (!is.numeric(y) || length(y) != 1 || is.na(y) || y < 0) {
+    rlang::abort("`y` must be a single numeric value >= 0.")
+  }
+
+  if (!is.numeric(mu) || length(mu) != 1 || is.na(mu) || mu < 0) {
+    rlang::abort("`mu` must be a single numeric value >= 0.")
+  }
+
+  if (!is.numeric(phi) || length(phi) != 1 || is.na(phi) || phi <= 0) {
+    rlang::abort("`phi` must be a single positive numeric value.")
+  }
+
+  if (
+    !is.numeric(power) ||
+      length(power) != 1 ||
+      is.na(power) ||
+      power <= 1 ||
+      power >= 2
+  ) {
+    rlang::abort(
+      "`power` must be strictly between 1 and 2 for this compound Poisson-Gamma implementation."
+    )
+  }
+
+  z_ptweedie_rs(
+    y = y,
+    mu = mu,
+    phi = phi,
+    power = power,
+    lower_tail = lower.tail,
+    log_p = log.p
+  )
 }

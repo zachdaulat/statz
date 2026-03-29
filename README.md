@@ -72,11 +72,11 @@ You can compile and install the package using `pak` (recommended) or `devtools`:
 
 ```r
 # Using pak
-install.packages("pak")
+# install.packages("pak")
 pak::pkg_install("zachdaulat/statz")
 
 # Or using devtools
-install.packages("devtools")
+# install.packages("devtools")
 devtools::install_github("zachdaulat/statz")
 ```
 
@@ -89,7 +89,7 @@ $ cd statz
 
 ```r
 # From R, with working directory set to the package root
-install.packages(c("rextendr", "devtools"))
+# install.packages(c("rextendr", "devtools"))
 rextendr::document()
 devtools::install()
 ```

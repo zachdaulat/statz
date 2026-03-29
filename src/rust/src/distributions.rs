@@ -14,6 +14,7 @@ extendr_module! {
     fn z_dgamma_rs;
     fn z_pgamma_rs;
     fn z_dtweedie_rs;
+    fn z_ptweedie_rs;
 }
 
 // Planned functions:
@@ -285,7 +286,6 @@ pub fn z_pgamma_rs(x: f64, shape: f64, rate: f64, lower_tail: bool, log_p: bool)
 /// - `y < 0` is not handled here (should be blocked by R).
 /// - Automatically routes exact zeros to point-mass fast paths.
 /// - Uses the Dunn & Smyth (2005) series expansion for y > 0.
-
 #[extendr]
 pub fn z_dtweedie_rs(y: f64, mu: f64, phi: f64, power: f64, log: bool) -> f64 {
     // Fast path when mu = 0
@@ -318,10 +318,68 @@ pub fn z_dtweedie_rs(y: f64, mu: f64, phi: f64, power: f64, log: bool) -> f64 {
     // Fast path when y = 0 but mu > 0
     // Just the Poisson mass at 0
     if y == 0.0 && mu > 0.0 {
-        return z_dpois_rs(0, lambda, log);
+        return if log { -lambda } else { -lambda.exp() };
     }
 
-    ds_series(y, lambda, shape, rate, log)
+    dtweedie_series(y, lambda, shape, rate, log)
+}
+
+// ============================================================
+// Documentation for z_ptweedie_rs
+// ============================================================
+
+/// Computing the Tweedie CDF (compound Poisson-Gamma)
+/// Internal Rust engine for the Tweedie cumulative distribution.
+/// Assumes all inputs (y, mu, phi, power) have been pre-validated by the R wrapper.
+/// - `y < 0` is not handled here (should be blocked by R).
+/// - Automatically routes exact zeros to point-mass fast paths.
+/// - Uses the Dunn & Smyth (2005) series expansion for y > 0.
+/// - Supports `lower_tail` and `log_p` evaluation.
+#[extendr]
+pub fn z_ptweedie_rs(y: f64, mu: f64, phi: f64, power: f64, lower_tail: bool, log_p: bool) -> f64 {
+    if mu == 0.0 {
+        if lower_tail {
+            return if log_p { 0.0 } else { 1.0 };
+        } else {
+            return if log_p { f64::NEG_INFINITY } else { 0.0 };
+        }
+    }
+
+    // Organize parameter sets
+    let tw_params = TwParams { mu, phi, power };
+    let PgParams {
+        lambda,
+        shape,
+        rate,
+    } = tw_params.to_pg();
+
+    // Direct space point mass at 0
+    let p_zero: f64 = (-lambda).exp();
+
+    // Fast path when y = 0 but mu > 0, condition unnecessary but used for clarity
+    // Just the Poisson mass at 0
+    if y == 0.0 && mu > 0.0 {
+        if lower_tail {
+            return if log_p { -lambda } else { p_zero };
+        } else {
+            // P(Y > 0) = 1 - P(Y = 0)
+            let p_upper: f64 = 1.0 - p_zero;
+            return if log_p { p_upper.ln() } else { p_upper };
+        }
+    }
+
+    // Primary series evaluation for y > 0
+    let p_tweedie: f64 = if lower_tail {
+        ptweedie_series(y, lambda, shape, rate, lower_tail) + p_zero
+    } else {
+        ptweedie_series(y, lambda, shape, rate, lower_tail)
+    };
+
+    if log_p {
+        p_tweedie.ln()
+    } else {
+        p_tweedie
+    }
 }
 
 // -------------------- Convenience Functions -------------------
@@ -635,8 +693,10 @@ pub(crate) fn log_sum_exp(l_terms: &[f64], log: bool) -> f64 {
     }
 }
 
-// Dunn-Smyth Series helper function, Tweedie density for y > 0
-pub(crate) fn ds_series(y: f64, lambda: f64, shape: f64, rate: f64, log: bool) -> f64 {
+/// Dunn-Smyth Series helper function, Tweedie density for y > 0
+/// Internal engine for the Tweedie density infinite series (y > 0).
+/// Accumulates Poisson-weighted Gamma densities into a vector for log_sum_exp()
+pub(crate) fn dtweedie_series(y: f64, lambda: f64, shape: f64, rate: f64, log: bool) -> f64 {
     // 1: Starting index and log-likelihood
     let k_0: f64 = lambda.floor().max(1.0);
     let l_0: f64 = z_dpois_rs(k_0 as i32, lambda, true) + z_dgamma_rs(y, k_0 * shape, rate, true);
@@ -646,7 +706,7 @@ pub(crate) fn ds_series(y: f64, lambda: f64, shape: f64, rate: f64, log: bool) -
     let l_p1: f64 =
         z_dpois_rs(k_p1 as i32, lambda, true) + z_dgamma_rs(y, k_p1 * shape, rate, true);
 
-    // 2: Gradient setting the step direction to find max
+    // 2: Gradient setting the step direction for hill-climb
     let step: f64 = if l_p1 > l_0 { 1.0 } else { -1.0 };
     let mut k_prev: f64 = if step > 0.0 { k_0 } else { k_p1 };
     let mut k_curr: f64 = if step > 0.0 { k_p1 } else { k_0 };
@@ -671,42 +731,99 @@ pub(crate) fn ds_series(y: f64, lambda: f64, shape: f64, rate: f64, log: bool) -
     let k_max = k_prev;
     let l_max = l_prev;
 
+    // Defining term size limit
+    let lim: f64 = l_max + f64::EPSILON.ln();
+
     // 4: Initialise vector and collect terms
     let mut l_terms: Vec<f64> = Vec::with_capacity(1024);
     l_terms.push(l_max);
 
-    // Defining term size limit
-    let lim: f64 = l_max + f64::EPSILON.ln();
+    // --- Reverse loop ---
+    let mut ki: f64 = k_max - 1.0;
+    // Priming read for reverse loop
+    let mut ld_pois: f64 = z_dpois_rs(ki as i32, lambda, true);
+    let mut ld_gamma: f64 = z_dgamma_rs(y, ki * shape, rate, true);
+    let mut li: f64 = ld_pois + ld_gamma;
 
-    // Reverse loop
-    while l_prev > lim && k_prev > 1.0 {
-        let k_curr = k_prev - 1.0;
-        let l_curr =
-            z_dpois_rs(k_curr as i32, lambda, true) + z_dgamma_rs(y, k_curr * shape, rate, true);
+    while li > lim {
+        l_terms.push(li); // Accumulate immediately
 
-        // Add term to vector and update
-        l_terms.push(l_curr);
-        k_prev = k_curr;
-        l_prev = l_curr;
+        ki -= 1.0;
+        if ki < 1.0 {
+            break;
+        } // Domain safety
+
+        // Calculate next term for condition check
+        let ld_pois: f64 = z_dpois_rs(ki as i32, lambda, true);
+        let ld_gamma: f64 = z_dgamma_rs(y, ki * shape, rate, true);
+        li = ld_pois + ld_gamma;
     }
 
-    // Reset indices to max
-    k_prev = k_max;
-    l_prev = l_max;
-    // Grow vector in forward direction
-    while l_prev > lim {
-        let k_curr = k_prev + 1.0;
-        let l_curr =
-            z_dpois_rs(k_curr as i32, lambda, true) + z_dgamma_rs(y, k_curr * shape, rate, true);
+    // --- Forward loop ---
+    ki = k_max + 1.0;
+    // Priming read for forward loop
+    ld_pois = z_dpois_rs(ki as i32, lambda, true);
+    ld_gamma = z_dgamma_rs(y, ki * shape, rate, true);
+    li = ld_pois + ld_gamma;
 
-        // Add term to vector and update
-        l_terms.push(l_curr);
-        k_prev = k_curr;
-        l_prev = l_curr;
+    while li > lim {
+        l_terms.push(li); // Accumulating immediately upon entering loop iteration
+        ki += 1.0;
+
+        // Calculate next term for condition check
+        let ld_pois: f64 = z_dpois_rs(ki as i32, lambda, true);
+        let ld_gamma: f64 = z_dgamma_rs(y, ki * shape, rate, true);
+        li = ld_pois + ld_gamma;
     }
 
     // 5: Evaluate log-sum-exp
     log_sum_exp(&l_terms, log)
+}
+
+/// Dunn-Smyth Series helper function, Tweedie CDF for y > 0
+/// Internal engine for the Tweedie CDF infinite series (y > 0).
+/// Accumulates Poisson-weighted Gamma probabilities in direct space.
+pub(crate) fn ptweedie_series(y: f64, lambda: f64, shape: f64, rate: f64, lower_tail: bool) -> f64 {
+    // 1: Starting index and initialise sum
+    let k0: f64 = lambda.floor().max(1.0);
+    let lp_pois: f64 = z_dpois_rs(k0 as i32, lambda, true);
+    let lp_gamma: f64 = z_pgamma_rs(y, k0 * shape, rate, lower_tail, true);
+    let mut term: f64 = (lp_pois + lp_gamma).exp();
+    let mut sum: f64 = 0.0;
+    let mut ki: f64 = k0;
+
+    // 2: Reverse direction loop
+    while term > f64::EPSILON {
+        // Accumulate new term
+        sum += term;
+        ki -= 1.0;
+
+        // Safety check for index
+        if ki < 1.0 {
+            break;
+        };
+        let lp_pois: f64 = z_dpois_rs(ki as i32, lambda, true);
+        let lp_gamma: f64 = z_pgamma_rs(y, ki * shape, rate, lower_tail, true);
+        term = (lp_pois + lp_gamma).exp();
+    }
+
+    // 3: Reset indices to next index for forward loop
+    ki = k0 + 1.0;
+    let lp_pois: f64 = z_dpois_rs(ki as i32, lambda, true);
+    let lp_gamma: f64 = z_pgamma_rs(y, ki * shape, rate, lower_tail, true);
+    term = (lp_pois + lp_gamma).exp();
+
+    // 4: Enter forward loop with next index
+    while term > f64::EPSILON {
+        // Accumulating new term
+        sum += term;
+        ki += 1.0;
+        let lp_pois: f64 = z_dpois_rs(ki as i32, lambda, true);
+        let lp_gamma: f64 = z_pgamma_rs(y, ki * shape, rate, lower_tail, true);
+        term = (lp_pois + lp_gamma).exp();
+    }
+
+    sum
 }
 
 // ============================================================
@@ -823,6 +940,7 @@ pub(crate) const LN_FACTORIALS: [f64; 16] = [
 
 // Rust-side unit tests
 #[allow(clippy::excessive_precision)]
+#[allow(clippy::manual_range_contains)]
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1381,7 +1499,6 @@ mod tests {
         assert!(TwParams::new(1.0, 1.0, 2.5).is_err(), "Should reject p > 2");
     }
 
-
     // --- Log-Sum-Exp Tests ---
 
     #[test]
@@ -1390,7 +1507,7 @@ mod tests {
         // ln(exp(0) + exp(0)) = ln(2)
         assert!((log_sum_exp(&terms, true) - std::f64::consts::LN_2).abs() < 1e-15);
     }
-    
+
     #[test]
     fn test_log_sum_exp_empty() {
         // Empty slice should cleanly return -Inf in log space
@@ -1401,7 +1518,7 @@ mod tests {
     #[test]
     fn test_log_sum_exp_underflow_prevention() {
         // If we didn't factor out the max, exp(-1000) would instantly underflow to 0.0,
-        // and the log of the sum would be -Inf. 
+        // and the log of the sum would be -Inf.
         // Factoring out the max allows this to calculate correctly.
         let terms = vec![-1000.0, -1000.0];
         // ln(exp(-1000) + exp(-1000)) = ln(2 * exp(-1000)) = ln(2) - 1000
@@ -1415,7 +1532,7 @@ mod tests {
     fn test_ds_series_terminates() {
         // Simply verifies the hill-climb and expansion loops do not infinite-loop
         // and that they return a valid, finite f64 value.
-        let val = ds_series(2.5, 1.5, 1.0, 1.0, true);
+        let val = dtweedie_series(2.5, 1.5, 1.0, 1.0, true);
         assert!(val.is_finite());
     }
 
@@ -1423,7 +1540,7 @@ mod tests {
     fn test_dtweedie_fast_paths() {
         // Fast Path 1: mu = 0, y = 0 -> Probability 1.0 (log = 0.0)
         assert_eq!(z_dtweedie_rs(0.0, 0.0, 1.0, 1.5, true), 0.0);
-        
+
         // Fast Path 1b: mu = 0, y > 0 -> Probability 0.0 (log = -Inf)
         assert_eq!(z_dtweedie_rs(2.0, 0.0, 1.0, 1.5, true), f64::NEG_INFINITY);
 
@@ -1431,8 +1548,30 @@ mod tests {
         // For mu = 5, p = 1.5, phi = 2.0 -> lambda = 5^(0.5) / (2 * 0.5) = sqrt(5)
         let lambda = 5.0_f64.powf(0.5) / 1.0;
         let expected_log_prob = -lambda; // Since Poisson(0; lambda) = e^-lambda
-        
+
         let calc = z_dtweedie_rs(0.0, 5.0, 2.0, 1.5, true);
         assert!((calc - expected_log_prob).abs() < 1e-14);
+    }
+
+    #[test]
+    fn test_ptweedie_series_terminates() {
+        // Verifies the linear space while-loops converge and return a valid probability
+        let val = ptweedie_series(2.5, 1.5, 1.0, 1.0, true);
+        assert!(val >= 0.0 && val <= 1.0);
+    }
+
+    #[test]
+    fn test_ptweedie_fast_paths() {
+        // mu = 0 -> Point mass at 0. CDF for any y >= 0 is 1.0 (or 0.0 in log space)
+        assert_eq!(z_ptweedie_rs(5.0, 0.0, 1.0, 1.5, true, false), 1.0);
+        assert_eq!(z_ptweedie_rs(5.0, 0.0, 1.0, 1.5, true, true), 0.0);
+
+        // y = 0, mu > 0 -> Poisson point mass at 0: exp(-lambda)
+        let lambda = 5.0_f64.powf(0.5) / 1.0;
+        let expected_p = (-lambda).exp();
+        let expected_log_p = -lambda;
+
+        assert!((z_ptweedie_rs(0.0, 5.0, 2.0, 1.5, true, false) - expected_p).abs() < 1e-14);
+        assert!((z_ptweedie_rs(0.0, 5.0, 2.0, 1.5, true, true) - expected_log_p).abs() < 1e-14);
     }
 }
