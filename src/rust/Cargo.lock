@@ -281,6 +281,7 @@ name = "statz"
 version = "0.1.0"
 dependencies = [
  "extendr-api",
+ "libm",
  "statrs",
 ]
 

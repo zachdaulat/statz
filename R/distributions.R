@@ -17,9 +17,9 @@ z_dnorm <- function(x, mean = 0, sd = 1, log = FALSE) {
 
 #' Normal distribution cumulative distribution function
 #'
-#' Computes P(X <= x) for X ~ N(mean, sd^2) using
-#' the Abramowitz & Stegun (1964) equation 7.1.26
-#' error function approximation.
+#' Computes P(X <= x) for X ~ N(mean, sd^2) utilizing the `libm`
+#' complementary error function (erfc) for full 64-bit machine
+#' precision, ensuring robust evaluation even in extreme distribution tails.
 #'
 #' @param x A numeric value quantile
 #' @param mean Mean of the normal distribution (default: 0)
@@ -212,6 +212,74 @@ z_pgamma <- function(
   )
 }
 
+#' Inverse Gaussian probability density function
+#'
+#' Computes the probability density function for the Inverse Gaussian distribution.
+#' Evaluated natively in log-space for maximum numerical stability.
+#'
+#' @param y A numeric quantile (y > 0). Currently only accepts scalars.
+#' @param mu The mean parameter (μ > 0).
+#' @param lambda The shape parameter (λ > 0).
+#' @param log Logical; if TRUE, probabilities p are given as log(p).
+#'
+#' @return A numeric scalar of the probability density.
+#' @export
+#'
+#' @examples
+#' z_dinvgauss(y = 1.5, mu = 2, lambda = 1)
+z_dinvgauss <- function(y, mu, lambda, log = FALSE) {
+  if (!is.numeric(y) || length(y) != 1 || is.na(y)) {
+    rlang::abort("`y` must be a single numeric value.")
+  }
+  if (!is.numeric(mu) || length(mu) != 1 || is.na(mu) || mu <= 0) {
+    rlang::abort("`mu` must be a single positive numeric value.")
+  }
+  if (
+    !is.numeric(lambda) || length(lambda) != 1 || is.na(lambda) || lambda <= 0
+  ) {
+    rlang::abort("`lambda` must be a single positive numeric value.")
+  }
+
+  z_dinvgauss_rs(y = y, mu = mu, lambda = lambda, log = log)
+}
+
+#' Inverse Gaussian cumulative distribution function
+#'
+#' Computes the cumulative probability F(y) for the Inverse Gaussian distribution.
+#'
+#' @param y A numeric quantile (y > 0). Currently only accepts scalars.
+#' @param mu The mean parameter (μ > 0).
+#' @param lambda The shape parameter (λ > 0).
+#' @param lower.tail Logical; if TRUE (default), probabilities are P[Y <= y], otherwise, P[Y > y].
+#' @param log.p Logical; if TRUE, probabilities p are given as log(p).
+#'
+#' @return A numeric scalar of the cumulative probability.
+#' @export
+#'
+#' @examples
+#' z_pinvgauss(y = 1.5, mu = 2, lambda = 1)
+z_pinvgauss <- function(y, mu, lambda, lower.tail = TRUE, log.p = FALSE) {
+  if (!is.numeric(y) || length(y) != 1 || is.na(y)) {
+    rlang::abort("`y` must be a single numeric value.")
+  }
+  if (!is.numeric(mu) || length(mu) != 1 || is.na(mu) || mu <= 0) {
+    rlang::abort("`mu` must be a single positive numeric value.")
+  }
+  if (
+    !is.numeric(lambda) || length(lambda) != 1 || is.na(lambda) || lambda <= 0
+  ) {
+    rlang::abort("`lambda` must be a single positive numeric value.")
+  }
+
+  z_pinvgauss_rs(
+    y = y,
+    mu = mu,
+    lambda = lambda,
+    lower_tail = lower.tail,
+    log_p = log.p
+  )
+}
+
 #' Tweedie distribution probability density function
 #'
 #' Computes the density f(y) for a Tweedie random variable using the
@@ -262,7 +330,7 @@ z_dtweedie <- function(y, mu, phi, power, log = FALSE) {
 #' @param mu The mean parameter (μ >= 0).
 #' @param phi The dispersion parameter (φ > 0).
 #' @param power The variance power parameter (1 < p < 2).
-#' @param lower.tail Logical; if TRUE (default) probabilities are P(Y < y), otherwise, P(Y > y).
+#' @param lower.tail Logical; if TRUE (default) probabilities are P(Y <= y), otherwise, P(Y > y).
 #' @param log.p Logical; if TRUE, probabilities p are given as ln(p).
 #'
 #' @return A numeric scalar of the cumulative probability.

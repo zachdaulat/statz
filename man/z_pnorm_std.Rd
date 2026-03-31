@@ -3,9 +3,8 @@
 \name{z_pnorm_std}
 \alias{z_pnorm_std}
 \title{Compute the standard normal cumulative distribution function (CDF)
-using the Abramowitz and Stegun (1972, 10th ed.) equation 7.1.26
-error function approximation.
-Maximum absolute error: |ε| < 1.5 × 10⁻⁷}
+using the \code{libm} crate error function implementations for full f64
+machine precision.}
 \usage{
 z_pnorm_std(z, lower_tail, log_p)
 }
@@ -17,7 +16,6 @@ Cumulative probability Φ(z) = P(Z ≤ z) for Z ~ N(0,1)
 }
 \description{
 Compute the standard normal cumulative distribution function (CDF)
-using the Abramowitz and Stegun (1972, 10th ed.) equation 7.1.26
-error function approximation.
-Maximum absolute error: |ε| < 1.5 × 10⁻⁷
+using the \code{libm} crate error function implementations for full f64
+machine precision.
 }

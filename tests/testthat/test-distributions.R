@@ -414,3 +414,66 @@ test_that("z_ptweedie evaluates correctly near the boundaries (p -> 1 and p -> 2
   res_tweedie_gam <- tweedie::ptweedie(y_vals, mu = mu, phi = phi, power = 1.95)
   expect_equal(res_statz_gam, res_tweedie_gam, tolerance = 1e-5)
 })
+
+# --- Inverse Gaussian (z_dinvgauss & z_pinvgauss) Tests ---
+
+test_that("Inverse Gaussian wrappers enforce strict input validation", {
+  # Parameter constraints
+  expect_error(z_dinvgauss(1, -2, 1), "positive numeric")
+  expect_error(z_dinvgauss(1, 2, 0), "positive numeric")
+  expect_error(z_pinvgauss(1, 2, NA_real_), "single positive numeric")
+
+  # Scalar constraints
+  expect_error(z_pinvgauss(c(1, 2), 2, 1), "single numeric value")
+})
+
+test_that("z_dinvgauss matches statmod::dinvgauss", {
+  # Require statmod for testing, skip if not installed
+  skip_if_not_installed("statmod")
+
+  y_vals <- c(0.1, 1.0, 2.5, 10.0)
+  mu <- 2.0
+  lambda <- 1.5
+
+  res_statz <- purrr::map_dbl(y_vals, \(y) z_dinvgauss(y, mu, lambda))
+  res_statmod <- statmod::dinvgauss(y_vals, mean = mu, shape = lambda)
+
+  expect_equal(res_statz, res_statmod, tolerance = 1e-12)
+})
+
+test_that("z_dinvgauss log space evaluates correctly", {
+  y <- 1.5
+  mu <- 2.0
+  lambda <- 1.0
+
+  pdf_linear <- z_dinvgauss(y, mu, lambda, log = FALSE)
+  pdf_log <- z_dinvgauss(y, mu, lambda, log = TRUE)
+
+  expect_equal(log(pdf_linear), pdf_log, tolerance = 1e-14)
+})
+
+test_that("z_pinvgauss matches statmod::pinvgauss", {
+  skip_if_not_installed("statmod")
+
+  y_vals <- c(0.1, 1.0, 2.5, 10.0)
+  mu <- 2.0
+  lambda <- 1.5
+
+  res_statz <- purrr::map_dbl(y_vals, \(y) {
+    z_pinvgauss(y, mu, lambda, lower.tail = TRUE)
+  })
+  res_statmod <- statmod::pinvgauss(y_vals, mean = mu, shape = lambda)
+
+  expect_equal(res_statz, res_statmod, tolerance = 1e-12)
+})
+
+test_that("z_pinvgauss upper and lower tails complement perfectly", {
+  y <- 2.5
+  mu <- 3.0
+  lambda <- 1.5
+
+  p_lower <- z_pinvgauss(y, mu, lambda, lower.tail = TRUE)
+  p_upper <- z_pinvgauss(y, mu, lambda, lower.tail = FALSE)
+
+  expect_equal(p_lower + p_upper, 1.0)
+})

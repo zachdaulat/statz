@@ -70,13 +70,23 @@ z_cor_onepass <- function(x, y) .Call(wrap__z_cor_onepass, x, y)
 z_dnorm_rs <- function(x, mean, sd, log) .Call(wrap__z_dnorm_rs, x, mean, sd, log)
 
 #' Compute the standard normal cumulative distribution function (CDF)
-#' using the Abramowitz and Stegun (1972, 10th ed.) equation 7.1.26
-#' error function approximation.
-#' Maximum absolute error: |ε| < 1.5 × 10⁻⁷
+#' using the `libm` crate error function implementations for full f64
+#' machine precision.
 #' @param z A z-score (standardised value)
 #' @return Cumulative probability Φ(z) = P(Z ≤ z) for Z ~ N(0,1)
 #' @export
 z_pnorm_std <- function(z, lower_tail, log_p) .Call(wrap__z_pnorm_std, z, lower_tail, log_p)
+
+#' Compute the standard normal cumulative distribution function (CDF)
+#' using the Abramowitz and Stegun (1972, 10th ed.) equation 7.1.26
+#' error function approximation.
+#' Deprecated in favour of the libm::erfc() implementation but kept
+#' as an initial pedagogical version.
+#' Maximum absolute error: |ε| < 1.5 × 10⁻⁷
+#' @param z A z-score (standardised value)
+#' @return Cumulative probability Φ(z) = P(Z ≤ z) for Z ~ N(0,1)
+#' @export
+z_pnorm_as <- function(z, lower_tail, log_p) .Call(wrap__z_pnorm_as, z, lower_tail, log_p)
 
 #' Compute the Poisson probability mass function P(X = x)
 #' using log-space arithmetic to avoid factorial overflow.
@@ -195,6 +205,20 @@ z_dtweedie_rs <- function(y, mu, phi, power, log) .Call(wrap__z_dtweedie_rs, y, 
 #' - Uses the Dunn & Smyth (2005) series expansion for y > 0.
 #' - Supports `lower_tail` and `log_p` evaluation.
 z_ptweedie_rs <- function(y, mu, phi, power, lower_tail, log_p) .Call(wrap__z_ptweedie_rs, y, mu, phi, power, lower_tail, log_p)
+
+#' Computes the Inverse Gaussian probability density function (PDF).
+#' Internal Rust engine for `statz`.
+#' Assumes parameters (mu, lambda) are strictly positive.
+#' - Returns 0.0 (or -Inf in log space) for y <= 0 or y -> Inf.
+#' - Evaluates natively in log space to ensure maximum likelihood stability.
+z_dinvgauss_rs <- function(y, mu, lambda, log) .Call(wrap__z_dinvgauss_rs, y, mu, lambda, log)
+
+#' Computes the Inverse Gaussian cumulative distribution function (CDF).
+#' Internal Rust engine for `statz`.
+#' Assumes parameters (mu, lambda) are strictly positive.
+#' - Utilizes `libm::erfc` via the standard normal CDF for full machine precision in extreme tails.
+#' - Implements a structural overflow brake for extreme parameterisations (2λ/μ > 709).
+z_pinvgauss_rs <- function(y, mu, lambda, lower_tail, log_p) .Call(wrap__z_pinvgauss_rs, y, mu, lambda, lower_tail, log_p)
 
 
 # nolint end

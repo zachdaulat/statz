@@ -12,6 +12,7 @@ name = 'statz'
 [dependencies]
 extendr-api = "0.8.1"
 statrs = "0.18.0"
+libm = "0.2.16"
 
 [profile.release]
 lto = true

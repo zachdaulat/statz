@@ -7,6 +7,7 @@ extendr_module! {
     mod distributions;
     fn z_dnorm_rs;
     fn z_pnorm_std;
+    fn z_pnorm_as;
     fn z_dpois_rs;
     fn z_ppois_di;
     fn z_ppois_rec;
@@ -15,6 +16,8 @@ extendr_module! {
     fn z_pgamma_rs;
     fn z_dtweedie_rs;
     fn z_ptweedie_rs;
+    fn z_dinvgauss_rs;
+    fn z_pinvgauss_rs;
 }
 
 // Planned functions:
@@ -22,6 +25,7 @@ extendr_module! {
 // - dpois, ppois         (Poisson distribution)
 // - dgamma, pgamma       (gamma distribution)
 // - dtweedie, ptweedie   (Tweedie/compound Poisson-gamma)
+// - dinvgauss, -invgauss (inverse gaussian distribution)
 
 /// Compute the normal probability density function (PDF)
 /// @param x A single numeric value at which to evaluate the density
@@ -43,25 +47,54 @@ pub fn z_dnorm_rs(x: f64, mean: f64, sd: f64, log: bool) -> f64 {
 }
 
 /// Compute the standard normal cumulative distribution function (CDF)
+/// using the `libm` crate error function implementations for full f64
+/// machine precision.
+/// @param z A z-score (standardised value)
+/// @return Cumulative probability Φ(z) = P(Z ≤ z) for Z ~ N(0,1)
+/// @export
+#[extendr]
+pub fn z_pnorm_std(z: f64, lower_tail: bool, log_p: bool) -> f64 {
+    // 1: Build erfc() input u
+    let mut u: f64 = z / SQRT_2;
+
+    // 2: Tail handling to adjust sign of u
+    if lower_tail {
+        u = -u;
+    }
+
+    // 3: erfc() call for phi
+    // Using libm:erfc() directly via path
+    let phi: f64 = libm::erfc(u) / 2.0;
+
+    if log_p {
+        phi.ln()
+    } else {
+        phi
+    }
+}
+
+/// Compute the standard normal cumulative distribution function (CDF)
 /// using the Abramowitz and Stegun (1972, 10th ed.) equation 7.1.26
 /// error function approximation.
+/// Deprecated in favour of the libm::erfc() implementation but kept
+/// as an initial pedagogical version.
 /// Maximum absolute error: |ε| < 1.5 × 10⁻⁷
 /// @param z A z-score (standardised value)
 /// @return Cumulative probability Φ(z) = P(Z ≤ z) for Z ~ N(0,1)
 /// @export
 #[extendr]
 #[allow(non_upper_case_globals)]
-pub fn z_pnorm_std(z: f64, lower_tail: bool, log_p: bool) -> f64 {
+pub fn z_pnorm_as(z: f64, lower_tail: bool, log_p: bool) -> f64 {
     // Ask about need to reference variables z, t, u, and use of const
 
     if z.is_nan() {
         return f64::NAN;
     }
     if z == f64::INFINITY {
-        return 1.0;
+        return if log_p { 0.0 } else { 1.0 };
     }
     if z == f64::NEG_INFINITY {
-        return 0.0;
+        return if log_p { f64::NEG_INFINITY } else { 0.0 };
     }
 
     let u = (z / SQRT_2).abs();
@@ -318,7 +351,7 @@ pub fn z_dtweedie_rs(y: f64, mu: f64, phi: f64, power: f64, log: bool) -> f64 {
     // Fast path when y = 0 but mu > 0
     // Just the Poisson mass at 0
     if y == 0.0 && mu > 0.0 {
-        return if log { -lambda } else { -lambda.exp() };
+        return if log { -lambda } else { (-lambda).exp() };
     }
 
     dtweedie_series(y, lambda, shape, rate, log)
@@ -362,8 +395,10 @@ pub fn z_ptweedie_rs(y: f64, mu: f64, phi: f64, power: f64, lower_tail: bool, lo
         if lower_tail {
             return if log_p { -lambda } else { p_zero };
         } else {
-            // P(Y > 0) = 1 - P(Y = 0)
-            let p_upper: f64 = 1.0 - p_zero;
+            // P(Y > 0) = 1 - e^(-lambda)
+            // Use exp_m1() to avoid catastrophic cancellation when lambda is near 0.
+            // exp_m1(-lambda) calculates e^(-lambda) - 1. We negate it to get 1 - e^(-lambda).
+            let p_upper: f64 = -(-lambda).exp_m1();
             return if log_p { p_upper.ln() } else { p_upper };
         }
     }
@@ -379,6 +414,92 @@ pub fn z_ptweedie_rs(y: f64, mu: f64, phi: f64, power: f64, lower_tail: bool, lo
         p_tweedie.ln()
     } else {
         p_tweedie
+    }
+}
+
+// ============================================================
+// Documentation for z_dinvgauss_rs
+// ============================================================
+
+/// Computes the Inverse Gaussian probability density function (PDF).
+/// Internal Rust engine for `statz`.
+/// Assumes parameters (mu, lambda) are strictly positive.
+/// - Returns 0.0 (or -Inf in log space) for y <= 0 or y -> Inf.
+/// - Evaluates natively in log space to ensure maximum likelihood stability.
+#[extendr]
+pub fn z_dinvgauss_rs(y: f64, mu: f64, lambda: f64, log: bool) -> f64 {
+    // 1: Fast paths
+    if y <= 0.0 || y.is_infinite() {
+        return if log { f64::NEG_INFINITY } else { 0.0 };
+    }
+
+    // 2: Normalisation constant terms
+    let l_lam: f64 = 0.5 * lambda.ln();
+    let l_y: f64 = 1.5 * y.ln();
+
+    // 3: Exponential term
+    let exp_term: f64 = -lambda * (y - mu).powi(2) / (2.0 * mu.powi(2) * y);
+
+    // 4: Combine terms in log space
+    let l_pdf: f64 = l_lam - LN_SQRT_2PI - l_y + exp_term;
+
+    if log {
+        l_pdf
+    } else {
+        l_pdf.exp()
+    }
+}
+
+// ============================================================
+// Documentation for z_pinvgauss_rs
+// ============================================================
+
+/// Computes the Inverse Gaussian cumulative distribution function (CDF).
+/// Internal Rust engine for `statz`.
+/// Assumes parameters (mu, lambda) are strictly positive.
+/// - Utilizes `libm::erfc` via the standard normal CDF for full machine precision in extreme tails.
+/// - Implements a structural overflow brake for extreme parameterisations (2λ/μ > 709).
+#[extendr]
+pub fn z_pinvgauss_rs(y: f64, mu: f64, lambda: f64, lower_tail: bool, log_p: bool) -> f64 {
+    // 0: Fast paths for domain boundaries and safety
+    if y <= 0.0 {
+        let p: f64 = if lower_tail { 0.0 } else { 1.0 };
+        return if log_p { p.ln() } else { p };
+    }
+    if y == f64::INFINITY {
+        let p: f64 = if lower_tail { 1.0 } else { 0.0 };
+        return if log_p { p.ln() } else { p };
+    }
+
+    // 1: Define z inputs to normal CDF
+    let z_1: f64 = (lambda / y).sqrt() * ((y / mu) - 1.0);
+    let z_2: f64 = -(lambda / y).sqrt() * ((y / mu) + 1.0);
+
+    // 2: Evaluating IG CDF terms
+    let pnorm_1: f64 = z_pnorm_std(z_1, lower_tail, false);
+    let l_exp: f64 = 2.0 * lambda / mu;
+
+    // Break for extreme parameterisations when correction term is
+    // negligible exploiting pnorm decreasing faster than exp term
+    if l_exp > f64::MAX.ln() {
+        return if log_p { pnorm_1.ln() } else { pnorm_1 };
+    }
+
+    let pnorm_2: f64 = z_pnorm_std(z_2, true, false);
+    let corr: f64 = l_exp.exp() * pnorm_2;
+
+    // 3: Evaluate tail argument
+    let cdf: f64 = if lower_tail {
+        pnorm_1 + corr
+    } else {
+        pnorm_1 - corr
+    };
+
+    // 4: log space reeturn check
+    if log_p {
+        cdf.ln()
+    } else {
+        cdf
     }
 }
 
@@ -966,28 +1087,28 @@ mod tests {
 
     #[test]
     fn test_pnorm_at_zero() {
-        // Φ(0) = 0.5 exactly
-        assert!((z_pnorm_std(0.0, true, false) - 0.5).abs() < 1e-7);
+        // Φ(0) = 0.5 exactly. Machine precision.
+        assert!((z_pnorm_std(0.0, true, false) - 0.5).abs() < 1e-15);
     }
 
     #[test]
     fn test_pnorm_symmetry() {
         // Φ(-z) = 1 - Φ(z)
         let z = 1.5;
-        assert!((z_pnorm_std(-z, true, false) - (1.0 - z_pnorm_std(z, true, false))).abs() < 1e-7);
+        assert!((z_pnorm_std(-z, true, false) - (1.0 - z_pnorm_std(z, true, false))).abs() < 1e-15);
     }
 
     #[test]
     fn test_pnorm_known_values() {
-        // Known values from standard normal tables
-        // Φ(1) ≈ 0.8413447
-        assert!((z_pnorm_std(1.0, true, false) - 0.841_344_7).abs() < 1e-6);
-        // Φ(-1) ≈ 0.1586553
-        assert!((z_pnorm_std(-1.0, true, false) - 0.158_655_3).abs() < 1e-6);
-        // Φ(1.96) ≈ 0.9750021
-        assert!((z_pnorm_std(1.96, true, false) - 0.975_002_1).abs() < 1e-6);
-        // Φ(3) ≈ 0.9986501
-        assert!((z_pnorm_std(3.0, true, false) - 0.998_650_1).abs() < 1e-6);
+        // Reference values from WolframAlpha: ex. N[CDF[NormalDistribution[0, 1], 1.96], 25]
+        // Φ(1) ≈ 0.8413447460685429
+        assert!((z_pnorm_std(1.0, true, false) - 0.8413447460685429485852325).abs() < 1e-15);
+        // Φ(-1) ≈ 0.15865525393145705
+        assert!((z_pnorm_std(-1.0, true, false) - 0.1586552539314570514147675).abs() < 1e-15);
+        // Φ(1.96) ≈ 0.9750021048517795
+        assert!((z_pnorm_std(1.96, true, false) - 0.9750021048517795658634157).abs() < 1e-15);
+        // Φ(3) ≈ 0.9986501019683699
+        assert!((z_pnorm_std(3.0, true, false) - 0.9986501019683699054733482).abs() < 1e-15);
     }
 
     #[test]
@@ -995,6 +1116,46 @@ mod tests {
         assert_eq!(z_pnorm_std(f64::INFINITY, true, false), 1.0);
         assert_eq!(z_pnorm_std(f64::NEG_INFINITY, true, false), 0.0);
         assert!(z_pnorm_std(f64::NAN, true, false).is_nan());
+    }
+
+    #[test]
+    fn test_pnorm_deep_tails() {
+        // Reference values also generated from WolframAlpha
+        // A&S 7.1.26 carries an absolute error of ~1.5e-7.
+        // For z = -5.0, the true mathematical probability is ~2.866e-7.
+        // A&S would fail catastrophically here. libm::erfc retains full mantissa precision.
+
+        let z: f64 = -5.0;
+        let expected: f64 = 2.866515718791939116737523e-7;
+        let calc: f64 = z_pnorm_std(z, true, false);
+
+        // Use relative error: |calc - expected| / expected
+        let relative_error: f64 = (calc - expected).abs() / expected;
+        assert!(
+            relative_error < 1e-14,
+            "Deep tail relative precision lost. Error: {}",
+            relative_error
+        );
+
+        // Test an even deeper tail where z = -8 (probability ~ 6.22e-16)
+        let z_deep: f64 = -8.0;
+        let expected_deep: f64 = 6.220960574271784123515995e-16;
+        let calc_deep: f64 = z_pnorm_std(z_deep, true, false);
+        let relative_error_deep: f64 = (calc_deep - expected_deep).abs() / expected_deep;
+        assert!(
+            relative_error_deep < 1e-14,
+            "Extreme deep tail relative precision lost."
+        );
+
+        // Test extreme tail where z = -20 (probability ~ 2.75e-89)
+        let z_xtr: f64 = -20.0;
+        let expected_xtr: f64 = 2.753624118606233695075623e-89;
+        let calc_xtr: f64 = z_pnorm_std(z_xtr, true, false);
+        let relative_error_xtr: f64 = (calc_xtr - expected_xtr).abs() / expected_xtr;
+        assert!(
+            relative_error_xtr < 1e-13,
+            "Extreme deep tail relative precision lost."
+        );
     }
 
     // --- z_dpois_rs tests ---
@@ -1573,5 +1734,144 @@ mod tests {
 
         assert!((z_ptweedie_rs(0.0, 5.0, 2.0, 1.5, true, false) - expected_p).abs() < 1e-14);
         assert!((z_ptweedie_rs(0.0, 5.0, 2.0, 1.5, true, true) - expected_log_p).abs() < 1e-14);
+    }
+
+    // --- Tweedie Invariant Tests ---
+
+    #[test]
+    fn test_dtweedie_regression_y_zero_direct_space() {
+        // This explicitly catches the `-lambda.exp()` precedence bug.
+        // If the bug exists, this will return a massive negative number instead of the true probability.
+        let mu = 5.0;
+        let phi = 2.0;
+        let p = 1.5;
+        // lambda = mu^(2-p) / (phi * (2-p))
+        let lambda = 5.0_f64.powf(0.5) / 1.0;
+        let expected_p = (-lambda).exp();
+
+        let calc_p = z_dtweedie_rs(0.0, mu, phi, p, false);
+        assert!(
+            (calc_p - expected_p).abs() < 1e-14,
+            "Direct space y=0 fast path failed."
+        );
+    }
+
+    #[test]
+    fn test_ptweedie_monotonicity() {
+        // CDF must be strictly non-decreasing: F(y_1) <= F(y_2) for y_1 < y_2
+        let y_vals = [0.1, 0.5, 1.0, 2.5, 5.0, 10.0];
+        let mut prev_cdf = -1.0;
+
+        for &y in &y_vals {
+            let curr_cdf = z_ptweedie_rs(y, 2.0, 1.5, 1.6, true, false);
+            assert!(curr_cdf >= prev_cdf, "CDF monotonicity violated at y={}", y);
+            prev_cdf = curr_cdf;
+        }
+    }
+
+    #[test]
+    fn test_ptweedie_bounds() {
+        // F(y) must be bounded strictly within [0, 1]
+        let y_vals = [0.0, 0.5, 5.0, 50.0];
+
+        for &y in &y_vals {
+            let cdf = z_ptweedie_rs(y, 3.0, 1.2, 1.4, true, false);
+            assert!(
+                cdf >= 0.0 && cdf <= 1.0,
+                "CDF out of bounds at y={}: {}",
+                y,
+                cdf
+            );
+        }
+    }
+
+    #[test]
+    fn test_tweedie_pdf_cdf_consistency() {
+        // The numerical derivative of the CDF should approximate the PDF.
+        // f(y) ≈ (F(y + h) - F(y - h)) / 2h
+        let y = 2.5;
+        let mu = 2.0;
+        let phi = 1.2;
+        let p = 1.5;
+        let h = 1e-5;
+
+        let pdf = z_dtweedie_rs(y, mu, phi, p, false);
+        let cdf_plus = z_ptweedie_rs(y + h, mu, phi, p, true, false);
+        let cdf_minus = z_ptweedie_rs(y - h, mu, phi, p, true, false);
+
+        let approx_pdf = (cdf_plus - cdf_minus) / (2.0 * h);
+
+        // Tolerance set to 1e-4 as suggested due to series accumulation error
+        assert!(
+            (pdf - approx_pdf).abs() < 1e-4,
+            "PDF/CDF consistency violated. PDF: {}, Approx: {}",
+            pdf,
+            approx_pdf
+        );
+    }
+
+    #[test]
+    fn test_ptweedie_upper_tail_consistency() {
+        // F(y) + S(y) = 1.0
+        let y = 3.5;
+        let mu = 2.5;
+        let phi = 1.1;
+        let p = 1.6;
+
+        let lower = z_ptweedie_rs(y, mu, phi, p, true, false);
+        let upper = z_ptweedie_rs(y, mu, phi, p, false, false);
+
+        assert!(
+            (lower + upper - 1.0).abs() < 1e-14,
+            "Upper/Lower tail consistency violated. Sum: {}",
+            lower + upper
+        );
+    }
+
+    // --- z_dinvgauss_rs tests ---
+
+    #[test]
+    fn test_dinvgauss_peak() {
+        // When y = mu = 1, lambda = 1, the exponential term is 0.
+        // PDF simplifies to 1 / sqrt(2 * PI)
+        let expected = 1.0 / statrs::consts::SQRT_2PI;
+        assert!((z_dinvgauss_rs(1.0, 1.0, 1.0, false) - expected).abs() < 1e-14);
+    }
+
+    #[test]
+    fn test_dinvgauss_fast_paths() {
+        assert_eq!(z_dinvgauss_rs(0.0, 1.0, 1.0, false), 0.0);
+        assert_eq!(z_dinvgauss_rs(-1.0, 1.0, 1.0, false), 0.0);
+        assert_eq!(z_dinvgauss_rs(f64::INFINITY, 1.0, 1.0, false), 0.0);
+        assert_eq!(z_dinvgauss_rs(0.0, 1.0, 1.0, true), f64::NEG_INFINITY);
+    }
+
+    // --- z_pinvgauss_rs tests ---
+
+    #[test]
+    fn test_pinvgauss_fast_paths() {
+        assert_eq!(z_pinvgauss_rs(0.0, 1.0, 1.0, true, false), 0.0);
+        assert_eq!(z_pinvgauss_rs(0.0, 1.0, 1.0, false, false), 1.0);
+        assert_eq!(z_pinvgauss_rs(f64::INFINITY, 1.0, 1.0, true, false), 1.0);
+    }
+
+    #[test]
+    fn test_pinvgauss_tail_complementarity() {
+        // F(y) + S(y) = 1.0
+        let y = 2.5;
+        let mu = 1.5;
+        let lambda = 2.0;
+        let lower = z_pinvgauss_rs(y, mu, lambda, true, false);
+        let upper = z_pinvgauss_rs(y, mu, lambda, false, false);
+        assert!((lower + upper - 1.0).abs() < 1e-14);
+    }
+
+    #[test]
+    fn test_pinvgauss_extreme_parameter_brake() {
+        // Triggers the exponent > 709.0 brake.
+        // 2 * lambda / mu = 1000.
+        // Should safely return the first pnorm term without NaN panics.
+        let cdf = z_pinvgauss_rs(1.0, 1.0, 500.0, true, false);
+        assert!(cdf >= 0.0 && cdf <= 1.0 && !cdf.is_nan());
     }
 }

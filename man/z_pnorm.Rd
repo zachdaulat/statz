@@ -17,9 +17,9 @@ z_pnorm(x, mean = 0, sd = 1, lower.tail = TRUE, log.p = FALSE)
 Cumulative probability (0 < y < 1)
 }
 \description{
-Computes P(X <= x) for X ~ N(mean, sd^2) using
-the Abramowitz & Stegun (1964) equation 7.1.26
-error function approximation.
+Computes P(X <= x) for X ~ N(mean, sd^2) utilizing the \code{libm}
+complementary error function (erfc) for full 64-bit machine
+precision, ensuring robust evaluation even in extreme distribution tails.
 }
 \examples{
 z_pnorm(1.96)           # ≈ 0.975
