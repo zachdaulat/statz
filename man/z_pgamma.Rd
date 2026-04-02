@@ -16,6 +16,10 @@ z_pgamma(x, shape, rate = NULL, scale = NULL, lower.tail = TRUE, log.p = FALSE)
 
 \item{scale}{The scale parameter (θ = 1/β > 0). Exactly one of
 \code{rate} or \code{scale} should be provided.}
+
+\item{lower.tail}{Logical; if TRUE (default), probabilities are P(X ≤ x), otherwise, P(X > x).}
+
+\item{log.p}{Logical; if TRUE, probabilities p are given as ln(p) (default: FALSE).}
 }
 \value{
 Cumulative probability P(X <= x)

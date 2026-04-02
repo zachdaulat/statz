@@ -15,7 +15,7 @@ z_ptweedie(y, mu, phi, power, lower.tail = TRUE, log.p = FALSE)
 
 \item{power}{The variance power parameter (1 < p < 2).}
 
-\item{lower.tail}{Logical; if TRUE (default) probabilities are P(Y <= y), otherwise, P(Y > y).}
+\item{lower.tail}{Logical; if TRUE (default) probabilities are P(Y ≤ y), otherwise, P(Y > y).}
 
 \item{log.p}{Logical; if TRUE, probabilities p are given as ln(p).}
 }

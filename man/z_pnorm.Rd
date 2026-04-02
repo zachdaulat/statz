@@ -12,6 +12,10 @@ z_pnorm(x, mean = 0, sd = 1, lower.tail = TRUE, log.p = FALSE)
 \item{mean}{Mean of the normal distribution (default: 0)}
 
 \item{sd}{Standard deviation of the normal distribution (default: 1)}
+
+\item{lower.tail}{Logical; if TRUE (default), probabilities are P(Z ≤ z), otherwise, P(Z > z).}
+
+\item{log.p}{Logical; if TRUE, probabilities p are given as ln(p) (default: FALSE).}
 }
 \value{
 Cumulative probability (0 < y < 1)

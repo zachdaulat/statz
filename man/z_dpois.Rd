@@ -10,6 +10,8 @@ z_dpois(x, lambda, log = FALSE)
 \item{x}{A non-negative whole number}
 
 \item{lambda}{Mean/variance, non-negative}
+
+\item{log}{Logical; if TRUE, probabilities p are given as ln(p) (default: FALSE).}
 }
 \value{
 Probability mass at x

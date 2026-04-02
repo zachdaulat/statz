@@ -5,6 +5,7 @@
 #' @param x A numeric value or vector
 #' @param mean Mean of the normal distribution (default: 0)
 #' @param sd Standard deviation of the normal distribution (default: 1)
+#' @param log Logical; if TRUE, probabilities p are given as ln(p) (default: FALSE).
 #'
 #' @return The probability density at x
 #' @export
@@ -24,6 +25,8 @@ z_dnorm <- function(x, mean = 0, sd = 1, log = FALSE) {
 #' @param x A numeric value quantile
 #' @param mean Mean of the normal distribution (default: 0)
 #' @param sd Standard deviation of the normal distribution (default: 1)
+#' @param lower.tail Logical; if TRUE (default), probabilities are P(Z ≤ z), otherwise, P(Z > z).
+#' @param log.p Logical; if TRUE, probabilities p are given as ln(p) (default: FALSE).
 #'
 #' @return Cumulative probability (0 < y < 1)
 #' @export
@@ -49,6 +52,7 @@ z_pnorm <- function(x, mean = 0, sd = 1, lower.tail = TRUE, log.p = FALSE) {
 #'
 #' @param x A non-negative whole number
 #' @param lambda Mean/variance, non-negative
+#' @param log Logical; if TRUE, probabilities p are given as ln(p) (default: FALSE).
 #'
 #' @return Probability mass at x
 #' @export
@@ -70,6 +74,8 @@ z_dpois <- function(x, lambda, log = FALSE) {
 #'
 #' @param x A non-negative whole number
 #' @param lambda Mean/variance, non-negative
+#' @param lower.tail Logical; if TRUE (default), probabilities are P(X ≤ x), otherwise, P(X > x).
+#' @param log.p Logical; if TRUE, probabilities p are given as ln(p) (default: FALSE).
 #'
 #' @return Cumulative probability of values <= x
 #' @export
@@ -160,6 +166,8 @@ z_dgamma <- function(x, shape, rate = NULL, scale = NULL, log = FALSE) {
 #'   `scale` should be provided.
 #' @param scale The scale parameter (θ = 1/β > 0). Exactly one of
 #'   `rate` or `scale` should be provided.
+#' @param lower.tail Logical; if TRUE (default), probabilities are P(X ≤ x), otherwise, P(X > x).
+#' @param log.p Logical; if TRUE, probabilities p are given as ln(p) (default: FALSE).
 #'
 #' @return Cumulative probability P(X <= x)
 #' @export
@@ -250,7 +258,7 @@ z_dinvgauss <- function(y, mu, lambda, log = FALSE) {
 #' @param y A numeric quantile (y > 0). Currently only accepts scalars.
 #' @param mu The mean parameter (μ > 0).
 #' @param lambda The shape parameter (λ > 0).
-#' @param lower.tail Logical; if TRUE (default), probabilities are P[Y <= y], otherwise, P[Y > y].
+#' @param lower.tail Logical; if TRUE (default), probabilities are P(Y ≤ y), otherwise, P(Y > y).
 #' @param log.p Logical; if TRUE, probabilities p are given as log(p).
 #'
 #' @return A numeric scalar of the cumulative probability.
@@ -330,7 +338,7 @@ z_dtweedie <- function(y, mu, phi, power, log = FALSE) {
 #' @param mu The mean parameter (μ >= 0).
 #' @param phi The dispersion parameter (φ > 0).
 #' @param power The variance power parameter (1 < p < 2).
-#' @param lower.tail Logical; if TRUE (default) probabilities are P(Y <= y), otherwise, P(Y > y).
+#' @param lower.tail Logical; if TRUE (default) probabilities are P(Y ≤ y), otherwise, P(Y > y).
 #' @param log.p Logical; if TRUE, probabilities p are given as ln(p).
 #'
 #' @return A numeric scalar of the cumulative probability.

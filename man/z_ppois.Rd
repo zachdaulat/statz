@@ -10,6 +10,10 @@ z_ppois(x, lambda, lower.tail = TRUE, log.p = FALSE)
 \item{x}{A non-negative whole number}
 
 \item{lambda}{Mean/variance, non-negative}
+
+\item{lower.tail}{Logical; if TRUE (default), probabilities are P(X ≤ x), otherwise, P(X > x).}
+
+\item{log.p}{Logical; if TRUE, probabilities p are given as ln(p) (default: FALSE).}
 }
 \value{
 Cumulative probability of values <= x

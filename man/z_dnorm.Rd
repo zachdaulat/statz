@@ -12,6 +12,8 @@ z_dnorm(x, mean = 0, sd = 1, log = FALSE)
 \item{mean}{Mean of the normal distribution (default: 0)}
 
 \item{sd}{Standard deviation of the normal distribution (default: 1)}
+
+\item{log}{Logical; if TRUE, probabilities p are given as ln(p) (default: FALSE).}
 }
 \value{
 The probability density at x

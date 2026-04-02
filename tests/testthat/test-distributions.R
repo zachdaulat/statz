@@ -1,23 +1,23 @@
 # Normal Distribution tests
-test_that("z_pnorm matches R's pnorm for standard normal", {
+test_that("z_pnorm matches R's pnorm for standard normal (tol < 1e-15", {
   test_values <- c(-3, -1.96, -1, 0, 1, 1.96, 3)
   for (z in test_values) {
-    expect_equal(z_pnorm(z), pnorm(z), tolerance = 1e-4)
+    expect_equal(z_pnorm(z), pnorm(z), tolerance = 1e-14)
   }
 })
 
-test_that("z_pnorm matches R's pnorm (absolute error < 2e-7)", {
+test_that("z_pnorm matches R's pnorm (tol < 1e-15)", {
   test_values <- c(-3, -1.96, -1, 0, 1, 1.96, 3)
   for (z in test_values) {
     expect_true(
-      abs(z_pnorm(z) - pnorm(z)) < 1e-7,
+      abs(z_pnorm(z) - pnorm(z)) < 1e-15,
       label = paste("absolute error at z =", z)
     )
   }
 })
 
 test_that("z_pnorm handles non-standard normal", {
-  expect_equal(z_pnorm(100, mean = 100, sd = 15), 0.5, tolerance = 1e-6)
+  expect_equal(z_pnorm(100, mean = 100, sd = 15), 0.5, tolerance = 1e-15)
 })
 
 test_that("z_pnorm rejects invalid sd", {
@@ -26,8 +26,8 @@ test_that("z_pnorm rejects invalid sd", {
 })
 
 test_that("z_dnorm matches R's dnorm", {
-  expect_equal(z_dnorm(0), dnorm(0), tolerance = 1e-10)
-  expect_equal(z_dnorm(1, mean = 1, sd = 2), dnorm(1, 1, 2), tolerance = 1e-10)
+  expect_equal(z_dnorm(0), dnorm(0), tolerance = 1e-15)
+  expect_equal(z_dnorm(1, mean = 1, sd = 2), dnorm(1, 1, 2), tolerance = 1e-15)
 })
 
 # Posson Distribution tests
@@ -42,7 +42,7 @@ test_that("z_dpois matches R's dpois", {
     expect_equal(
       z_dpois(tc$x, tc$lambda),
       dpois(tc$x, tc$lambda),
-      tolerance = 1e-10
+      tolerance = 1e-14
     )
   }
 })
@@ -64,7 +64,7 @@ test_that("z_ppois matches R's ppois", {
     expect_equal(
       z_ppois(tc$x, tc$lambda),
       ppois(tc$x, tc$lambda),
-      tolerance = 1e-10
+      tolerance = 1e-15
     )
   }
 })
@@ -77,7 +77,7 @@ test_that("z_lgamma matches R lgamma() for small integers", {
     expect_equal(
       z_lgamma(n),
       lgamma(n),
-      tolerance = 1e-13,
+      tolerance = 1e-15,
       label = paste0("lgamma(", n, ")")
     )
   }
@@ -89,7 +89,7 @@ test_that("z_lgamma matches R lgamma() for half-integers", {
     expect_equal(
       z_lgamma(z),
       lgamma(z),
-      tolerance = 1e-13,
+      tolerance = 1e-15,
       label = paste0("lgamma(", z, ")")
     )
   }
@@ -120,7 +120,7 @@ test_that("z_lgamma matches R lgamma() across a range of values", {
     expect_equal(
       z_lgamma(z),
       lgamma(z),
-      tolerance = 1e-11,
+      tolerance = 1e-15,
       label = paste0("lgamma(", z, ")")
     )
   }
@@ -135,7 +135,7 @@ test_that("z_lgamma handles the reflection formula correctly", {
     expect_equal(
       lhs,
       rhs,
-      tolerance = 1e-12,
+      tolerance = 1e-15,
       label = paste0("reflection at z = ", z)
     )
   }
@@ -155,17 +155,17 @@ test_that("z_dgamma matches R dgamma() for basic cases", {
   expect_equal(
     z_dgamma(2, shape = 3, rate = 1),
     dgamma(2, shape = 3, rate = 1),
-    tolerance = 1e-10
+    tolerance = 1e-15
   )
   expect_equal(
     z_dgamma(1, shape = 2, rate = 2),
     dgamma(1, shape = 2, rate = 2),
-    tolerance = 1e-10
+    tolerance = 1e-15
   )
   expect_equal(
     z_dgamma(0.5, shape = 0.5, rate = 1),
     dgamma(0.5, shape = 0.5, rate = 1),
-    tolerance = 1e-10
+    tolerance = 1e-15
   )
 })
 
@@ -174,7 +174,7 @@ test_that("z_dgamma with scale parameterisation matches rate", {
   expect_equal(
     z_dgamma(2, shape = 3, scale = 2),
     z_dgamma(2, shape = 3, rate = 0.5),
-    tolerance = 1e-14
+    tolerance = 1e-15
   )
 })
 
@@ -183,13 +183,13 @@ test_that("z_dgamma matches exponential distribution when shape = 1", {
   rate <- 2
   x <- 1
   expected <- rate * exp(-rate * x)
-  expect_equal(z_dgamma(x, shape = 1, rate = rate), expected, tolerance = 1e-10)
+  expect_equal(z_dgamma(x, shape = 1, rate = rate), expected, tolerance = 1e-15)
 })
 
 test_that("z_dgamma log mode is consistent", {
   val <- z_dgamma(2, shape = 3, rate = 1)
   log_val <- z_dgamma(2, shape = 3, rate = 1, log = TRUE)
-  expect_equal(log_val, log(val), tolerance = 1e-14)
+  expect_equal(log_val, log(val), tolerance = 1e-15)
 })
 
 test_that("z_dgamma matches R dgamma() across a grid", {
@@ -203,7 +203,7 @@ test_that("z_dgamma matches R dgamma() across a grid", {
         expect_equal(
           z_dgamma(x, shape = a, rate = b),
           dgamma(x, shape = a, rate = b),
-          tolerance = 1e-9,
+          tolerance = 1e-14,
           label = paste0("dgamma(", x, ", ", a, ", ", b, ")")
         )
       }
@@ -222,12 +222,12 @@ test_that("z_pgamma matches R pgamma() for basic cases", {
   expect_equal(
     z_pgamma(2, shape = 3, rate = 1),
     pgamma(2, shape = 3, rate = 1),
-    tolerance = 1e-10
+    tolerance = 1e-15
   )
   expect_equal(
     z_pgamma(1, shape = 2, scale = 0.5),
     pgamma(1, shape = 2, scale = 0.5),
-    tolerance = 1e-10
+    tolerance = 1e-15
   )
 })
 
@@ -249,7 +249,7 @@ test_that("z_dtweedie calculates exact zero mass correctly", {
   res_statz <- z_dtweedie(y, mu, phi, p, log = TRUE)
   res_tweedie <- tweedie::dtweedie(y, mu = mu, phi = phi, power = p)
 
-  expect_equal(res_statz, log(res_tweedie), tolerance = 1e-10)
+  expect_equal(res_statz, log(res_tweedie), tolerance = 1e-15)
 })
 
 test_that("z_dtweedie handles mu = 0 fast path", {
@@ -387,7 +387,7 @@ test_that("z_ptweedie Dunn-Smyth series matches CRAN tweedie package", {
   res_tweedie <- tweedie::ptweedie(y_vals, mu = mu, phi = phi, power = p)
 
   # CDFs are generally more stable than PDFs, so 1e-6 is a very safe tolerance
-  expect_equal(res_statz, res_tweedie, tolerance = 1e-6)
+  expect_equal(res_statz, res_tweedie, tolerance = 1e-15)
 })
 
 test_that("z_ptweedie evaluates correctly near the boundaries (p -> 1 and p -> 2)", {
@@ -405,14 +405,14 @@ test_that("z_ptweedie evaluates correctly near the boundaries (p -> 1 and p -> 2
     phi = phi,
     power = 1.05
   )
-  expect_equal(res_statz_pois, res_tweedie_pois, tolerance = 1e-5)
+  expect_equal(res_statz_pois, res_tweedie_pois, tolerance = 1e-13)
 
   # Near Gamma boundary
   res_statz_gam <- purrr::map_dbl(y_vals, \(y) {
     z_ptweedie(y, mu, phi, power = 1.95)
   })
   res_tweedie_gam <- tweedie::ptweedie(y_vals, mu = mu, phi = phi, power = 1.95)
-  expect_equal(res_statz_gam, res_tweedie_gam, tolerance = 1e-5)
+  expect_equal(res_statz_gam, res_tweedie_gam, tolerance = 1e-14)
 })
 
 # --- Inverse Gaussian (z_dinvgauss & z_pinvgauss) Tests ---
@@ -438,7 +438,7 @@ test_that("z_dinvgauss matches statmod::dinvgauss", {
   res_statz <- purrr::map_dbl(y_vals, \(y) z_dinvgauss(y, mu, lambda))
   res_statmod <- statmod::dinvgauss(y_vals, mean = mu, shape = lambda)
 
-  expect_equal(res_statz, res_statmod, tolerance = 1e-12)
+  expect_equal(res_statz, res_statmod, tolerance = 1e-15)
 })
 
 test_that("z_dinvgauss log space evaluates correctly", {
@@ -449,7 +449,7 @@ test_that("z_dinvgauss log space evaluates correctly", {
   pdf_linear <- z_dinvgauss(y, mu, lambda, log = FALSE)
   pdf_log <- z_dinvgauss(y, mu, lambda, log = TRUE)
 
-  expect_equal(log(pdf_linear), pdf_log, tolerance = 1e-14)
+  expect_equal(log(pdf_linear), pdf_log, tolerance = 1e-15)
 })
 
 test_that("z_pinvgauss matches statmod::pinvgauss", {
@@ -464,7 +464,7 @@ test_that("z_pinvgauss matches statmod::pinvgauss", {
   })
   res_statmod <- statmod::pinvgauss(y_vals, mean = mu, shape = lambda)
 
-  expect_equal(res_statz, res_statmod, tolerance = 1e-12)
+  expect_equal(res_statz, res_statmod, tolerance = 1e-14)
 })
 
 test_that("z_pinvgauss upper and lower tails complement perfectly", {

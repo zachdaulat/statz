@@ -17,14 +17,14 @@ This is an in-development project intended to be a structured and focused but ex
     - [Normal Distribution](#normal-distribution)
     - [Poisson Distribution](#poisson-distribution)
     - [Gamma Distribution](#gamma-distribution)
-    - [Tweedie Distribution *(in progress)*](#tweedie-distribution-in-progress)
-    - [Inverse Gaussian Distribution](#inverse-gaussian-distribution-in-progress)
+    - [Inverse Gaussian Distribution](#inverse-gaussian-distribution)
+    - [Tweedie Distribution](#tweedie-distribution)
 - [Planned Work](#planned-work)
   - [Part 3 — Linear Models](#part-3)
   - [Part 4 — Generalised Linear Models](#part-4)
   - [Parts 5+ — Causal Inference and Spatial Statistics](#parts-5)
 - [Testing](#testing)
-  - [Notable Rust Tests](#notable-rust-tests)
+  - [Notable Tests](#notable-tests)
 - [References](#references)
 - [Licence](#licence)
 
@@ -49,7 +49,7 @@ statz/
 
 Currently the most significant interface departure from the R-native implementations is that the distribution functions are not yet vectorised. The descriptive statistics functions (`z_mean()`, `z_cor()`, etc.) are, but I decided against vectorising the distributions for now to focus on learning their respective PDFs/PMF and CDFs and the numerical methods. I may vectorise them eventually as an exercise in learning Rust's ownership system and borrow checker, zero-allocation iterator techniques, and memory safety; potentially useful prep for the OLS and GLM implementations planned in parts 3 and 4.
 
-Functions annotated with the `#[extendr]` attribute are exported to R via the `extendr_module!` macro. Most internal helper functions like `lower_gamma_series()` and `upper_gamma_cf()` use `pub(crate)` to remain accessible within the Rust crate but are hidden from R. Most exported Rust functions like `z_pgamma_rs()` have an associated R wrapper like `z_pgamma()` that adds input validation and parameterisation options. The exported Rust functions are usually not intended to be called directly by a user.
+Functions annotated with the `#[extendr]` attribute are exported to R via the `extendr_module!` macro. Most internal helper functions like `lower_gamma_series()` and `upper_gamma_cf()` use `pub(crate)` to remain accessible within the Rust crate but are hidden from R. Most of the functions like `z_pgamma_rs()` flagged with a suffix (usually `*_rs()`) are the exported Rust function, and have an associated R wrapper like `z_pgamma()` that adds input validation and parameterisation options. The exported Rust functions are usually not intended to be called directly by a user.
 
 The initial implementation prioritises the core analytical functions (`d*` and `p*`) over quantile (`q*`) and random generation (`r*`) functions to maintain a focused pedagogical scope.
 
@@ -117,57 +117,57 @@ Basic sample statistics implemented in Rust, using Bessel's correction (*n* − 
 
 Following R’s standard naming convention, the package implements density/mass and cumulative probability distribution functions using the `d*` (density/mass) and `p*` (CDF) prefixes. R wrappers provide input validation and, where applicable, dual parameterisation (e.g., `rate` and `scale` for the gamma distribution). All density/mass computations use log-space arithmetic to avoid overflow.
 
-The probability density/mass functions accept a `log` argument to return the log-density/log-probability directly, and the CDF functions accept a `log.p` argument to return cumulative log-probabilities. The CDF functions also accept a `lower.tail` argument; when `FALSE`, the upper tail probability is returned.
+The probability density/mass functions also accept a `log` argument to return the log-density/log-probability directly, and the CDF functions accept a `log.p` argument to return cumulative log-probabilities. The CDF functions also accept a `lower.tail` argument; the default is `TRUE`, and the upper tail probability is returned when `FALSE`.
 
 | Function | Description | Method |
 |----------|-------------|-----------|
 | `z_dnorm(x, mean, sd)` | Normal PDF | Log-space: $-\ln\sigma - \frac{1}{2}\ln(2\pi) - \frac{z^2}{2}$ |
-| `z_pnorm(x, mean, sd)` | Normal CDF | Abramowitz & Stegun (1972) eq. 7.1.26 error function approximation; Horner's method |
+| `z_pnorm(x, mean, sd)` | Normal CDF | `libm::erfc()`-based for deep tails: $\frac{1}{2}\text{erfc}(-z/\sqrt{2})$ |
 | `z_dpois(x, lambda)` | Poisson PMF | Log-space: $x \ln\lambda - \lambda - \sum_{i=1}^{x}\ln i$ |
 | `z_ppois(x, lambda)` | Poisson CDF | Recurrence relation: $P(X = k) = P(X = k-1) \cdot \lambda/k$ |
 | `z_lgamma(z)` | $\ln\Gamma(z)$ | Boost.Math Lanczos adaptation (see below) |
 | `z_dgamma(x, shape, rate, scale)` | Gamma PDF | Log-space using `z_lgamma()` for the $\ln\Gamma(\alpha)$ term |
 | `z_pgamma(x, shape, rate, scale)` | Gamma CDF | Regularised incomplete gamma function (see below) |
+| `z_dinvgauss(y, mu, lambda)` | Inverse Gaussian PDF | Log-space: $\frac{1}{2}\ln\lambda-\frac{1}{2}\ln(2\pi)-\frac{3}{2}\ln y-\frac{\lambda(y-\mu)^2}{2\mu^2y}$ |
+| `z_pinvgauss(y, mu, lambda)` | Inverse Gaussian CDF | `libm::erfc()`-based normal CDF; $\Phi(z_1) + \exp\left(\frac{2\lambda}{\mu}\right) \Phi(z_2)$ |
+| `z_dtweedie(y, mu, phi, power)` | Tweedie PDF ($1 < p < 2$) | Dunn & Smyth (2005) series expansion; log-sum-exp trick with hill-climbing |
+| `z_ptweedie(y, mu, phi, power)` | Tweedie CDF ($1 < p < 2$) | Linear accumulation of Poisson-weighted gamma probabilities |
 
-<!-- TODO: Add Tweedie functions when implemented. -->
+The Poisson CDF upper-tail implementation currently computes $1 - P$, and therefore loses precision when $P$ is near 1. This is a pedagogical simplification for now. The Normal, Gamma, Inverse Gaussian, and Tweedie CDFs each evaluate their respective upper tails directly, preserving near full machine precision deep into the right tails.
 
-The current normal and Poisson CDF upper-tail implementations compute $1 - P$, and therefore lose precision when $P$ is near 1. A production update would compute the upper tail directly, but I simplified this for a pedagogical project. The gamma PDF and CDF provide dual parameterisation options through providing either `rate` or `scale`, but not both.
+The gamma PDF and CDF provide dual parameterisation options through providing either `rate` or `scale`, but not both. The Tweedie implementations are currently scoped specifically to the $1 < p < 2$ compound Poisson-Gamma special case, as this is the interesting case relevant for modelling zero-inflated continuous data.
 
 #### Normal Distribution
 
-`z_pnorm()` computes the normal cumulative probability $\Phi(z)$ through its relationship to the error function:
+`z_pnorm()` computes the normal cumulative probability $P(Z \le z)$ for $Z \sim N(0,1)$ from the lower tail via the complementary error function $\text{erfc}(x)$:
 
 $$
-\Phi(z) = \frac{1}{2} \left[ 1 + \text{erf}\left(\frac{z}{\sqrt{2}}\right) \right]
+\Phi(z) = \frac{1}{2} \text{erfc}\left(-\frac{z}{\sqrt{2}}\right)
 $$
 
-Equation 7.1.26 from Abramowitz & Stegun (1972) approximates the error function from its complement $\text{erf}(z) = 1 - \text{erfc}(z)$:
+An intermediate variable `u` is calculated from the z-score input before being passed into `libm::erfc()`. To compute the upper tail, the sign of `u` is flipped passing $u = z / \sqrt{2}$ instead.
 
-$$
-\text{erf}(x) \approx 1 - \left(a_1 t + a_2 t^2 + a_3 t^3 + a_4 t^4 + a_5 t^5\right) e^{-x^2}
-$$
+The complementary error function implementation used here is from the `libm` crate, a Rust port of C math libraries. Using this robust `erfc()` implementation enables a very simple internal structure for `z_pnorm_rs()` to compute from either tail of the normal CDF with nearly full significand precision even for exceedingly small probabilities at a magnitude of $10^{-89}$.
 
-Where,
-
-- $t = 1/(1 + px)$, 
-- $p, a_1,...,a_5$ are provided constants
-- The maximum absolute error is $|\epsilon(x)| \le 1.5 \times 10^{-7}$
-
-The normal CDF takes the z-score as its input, so the error function evaluates $x = |z/\sqrt{2}|$. The A&S 7.1.26 polynomial is efficiently evaluated using Horner's method with Rust's `.mul_add()` for fused multiply-add instructions. 
+Note: This `libm::erfc()`-based implementation of the normal CDF is an update over my initial pedagogical version retained as `z_pnorm_as()`, which uses the Abramowitz & Stegun eq. 7.1.26 polynomial approximation of the error function. This update was motivated by the need for better tail precision for the Inverse Gaussian CDF, due to the A&S approximation's $|\epsilon(x)| \le 1.5 \times 10^{-7}$ maximum absolute error.
 
 #### Poisson Distribution
 
-The PMF `z_dpois()` uses log-space arithmetic to avoid factorial overflow. The log-mass $x\ln\lambda - \lambda - \sum \ln i$ is computed directly and exponentiated only at the final step.
+**PMF (`z_dpois`)**
 
-The CDF `z_ppois()` exploits the Poisson recurrence relation $P(X = k) = P(X = k-1) \cdot \lambda / k$, accumulating the sum in a single pass without recomputing each PMF term independently. The package also retains the less efficient direct-iteration implementation (`z_ppois_di()`).
+Computes the probability mass function $P(X = x | \lambda)$ using log-space arithmetic to avoid factorial overflow. The log-mass $x\ln\lambda - \lambda - \sum \ln i$ is computed directly and exponentiated only at the final step.
+
+**CDF (`z_ppois`)**
+
+Computes the cumulative probability for $X \sim \text{Poisson}(\lambda)$ by exploiting the recurrence relation $P(X = k) = P(X = k-1) \cdot \lambda / k$, accumulating the sum in a single pass without recomputing each PMF term independently. The package also retains the less efficient direct-iteration implementation (`z_ppois_di()`).
 
 #### Gamma Distribution
 
-##### `z_lgamma()` — Log-Gamma via Lanczos Approximation
+**Log-gamma (`z_lgamma`)** — via Lanczos Approximation
 
 Computes $\ln\Gamma(z)$ using a simplified adaptation of the [Boost.Math C++ library](https://www.boost.org/doc/libs/latest/libs/math/doc/html/math_toolkit/lanczos.html)'s Lanczos approximation, drawing from the `lanczos.hpp` and `gamma.hpp` source files. It uses the `lanczos13m53` parameters tuned for `f64` arithmetic ($N = 13$, $G \approx 6.0247$).
 
-The standard computational form of the Lanczos approximation expresses the gamma function as $\Gamma(z+1)$ and uses a partial fraction expansion:
+To contextualise the Boost.Math authors' optimisations, the standard computational form of the Lanczos approximation expresses the gamma function as $\Gamma(z+1)$ and with a partial fraction expansion:
 
 $$
 \Gamma(z+1) = \sqrt{2\pi} \left( z + g + \frac{1}{2} \right)^{z+1/2} e^{-(z+g+1/2)} \sum_{k=0}^N \frac{c_k}{z+k}
@@ -176,32 +176,33 @@ $$
 `z_lgamma()` evaluates a log-space adaptation of the Boost.Math formulation:
 
 $$
-\ln \Gamma(z) = t \ln\left(z + g - \frac{1}{2}\right) - t + \ln L_{g,e}(z)
+\ln \Gamma(z) = t \ln\left(t + g\right) - t + \ln L_{g,e}(z)
 $$
 
 $$
-L_{g,e}(z) = \frac{P_{12}(z)}{Q_{12}(z)} = \frac{\sum_{k=0}^{12} p_k z^k}{\sum_{k=0}^{12} q_k z^k}, \quad t = z - \frac{1}{2}
+t = z - \frac{1}{2}, \quad L_{g,e}(z) = \frac{P_{12}(z)}{Q_{12}(z)} = \frac{\sum_{k=0}^{12} p_k z^k}{\sum_{k=0}^{12} q_k z^k}
 $$
+
+For $z < 0.5$, the function applies the log-space reflection formula: $\ln \Gamma(z) = \ln \pi - \ln|\sin(\pi z)| - \ln \Gamma(1 - z)$.
 
 This implementation adapts the `lanczos13m53::lanczos_sum_expG_scaled` coefficient set from the `lanczos.hpp` source, which absorbs both the $\sqrt{2\pi}$ normalisation constant and the $e^{G}$ scaling factor directly into the $p_k$ coefficients. Below is a list of additional details about the Boost authors' optimizations and my implementation choices.
 
 **Optimizations & Implementation Decisions**
 
-- **(Boost) Algorithmic stability:** The Lanczos sum ($L_{g,e}(z)$) is evaluated as a ratio of two degree-12 polynomials $P(z)$ and $Q(z)$ using Horner's method with `.mul_add()`. This required the Boost authors to compute twice as many coefficient values for a given N, but all of the coefficients can now be positive instead of alternating positive and negative, avoiding catastrophic cancellation risks.
-- **(Boost) Precision simplification:** The Lanczos sum is not evaluated when the primary term (`lgam`) is so large that machine epsilon would truncate the addition anyway. The condition determining whether to evaluate it is `lgam * f64::EPSILON < 20.0`, the same condition found directly in the Boost.Math source `gamma.hpp`.
-- **Whole number lookups:** I constructed a precomputed `LN_FACTORIALS` array for small positive integers (`z <= 16`) to return the stored value, bypassing the Lanczos approximation entirely for these common inputs.
-- **Root handling:** The Boost implementation uses Taylor series expansions for inputs near 1 and 2. I omitted this as a deliberate simplification at the expense of reduced precision near the roots.
-- **Domain handling:** For $z < 0.5$, the function automatically applies the standard reflection formula: $\ln \Gamma(z) = \ln \pi - \ln|\sin(\pi z)| - \ln \Gamma(1 - z)$.
+- **(Boost) Algorithmic stability:** The Lanczos sum $L_{g,e}(z)$, is evaluated as a ratio of two degree-12 polynomials $P(z)$ and $Q(z)$ using Horner's method with `.mul_add()` for FMA operations. This required the Boost authors to compute twice as many coefficient values for a given N, but all of the coefficients can now be positive instead of alternating positive and negative, avoiding catastrophic cancellation risks.
+- **(Boost) Precision simplification:** The Lanczos sum is not evaluated when the primary term (`lgam`) is so large that the addition would be entirely truncated anyway. The condition determining whether to evaluate it is `lgam * f64::EPSILON < 20.0`, the same condition found directly in the Boost.Math source `gamma.hpp`.
+- **Whole number lookups:** I constructed a precomputed `LN_FACTORIALS` array storing $\ln(0!)$ to $\ln(15!)$ for small positive integer inputs ($\ln\Gamma(z)$ inputs $1 \le z \le 16$). The stored value is returned directly for these common cases, bypassing the Lanczos approximation.
+- **Root handling:** The Boost implementation uses Taylor series expansions for inputs near 1 and 2. I omitted this as a deliberate simplification at the expense of reduced precision near these inputs, although I might revisit this.
 
-The package also includes `z_lgamma_godfrey()`, a secondary implementation using Paul Godfrey's traditional formulation with alternating-sign coefficients (g = 7, N = 9). This is retained internally as a pedagogical comparison. The Godfrey formulation is simpler but less precise due to potential cancellation in the alternating sum.
+The underlying Rust crate includes `z_lgamma_godfrey()`, which uses Paul Godfrey's traditional formulation (g = 7, N = 9) but suffers from cancellation risks in its alternating sign coefficients. This is retained internally as an initial pedagogical version before I wrote the Boost.Math adaptation with its more robust rational polynomial approach.
 
-##### `z_dgamma()` — Gamma PDF
+**PDF (`z_dgamma`)**
 
 Computes the probability density function $f(x | \alpha, \beta)$ via the shape-rate parameterisation in log-space with `z_lgamma()`:
 
-$$\ln f = \alpha \ln(\beta) - \ln \Gamma(\alpha) + (\alpha-1)\ln(x) - \beta x$$
+$$\ln f(x) = \alpha \ln(\beta) - \ln \Gamma(\alpha) + (\alpha-1)\ln(x) - \beta x$$
 
-##### `z_pgamma()` — Gamma CDF via Incomplete Gamma Function
+**CDF (`z_pgamma`)**
 
 Computes the cumulative probability for $X \sim \text{Gamma}(\alpha, \beta)$ by approximating the regularised incomplete gamma functions. 
 
@@ -210,26 +211,71 @@ Computes the cumulative probability for $X \sim \text{Gamma}(\alpha, \beta)$ by 
 - **Series Expansion** ($z < \alpha + 1$): Evaluates a Taylor series to compute the lower-tail probability $P(\alpha, z)$.
 - **Continued Fraction** ($z \ge \alpha + 1$): Evaluates Legendre's continued fraction via the Modified Lentz Algorithm to compute the upper-tail probability $Q(\alpha, z)$.
 
-The `lower_tail` boolean argument determines whether the directly computed probability or its complement is returned.
+The `lower_tail` boolean argument then determines whether the directly computed probability or its complement must be returned.
 
-#### Tweedie Distribution *(in progress)*
+#### Inverse Gaussian Distribution 
 
-<!-- Placeholder for the Tweedie unit. Key framing: the Tweedie family is the "capstone" of the distributions phase, tying together the exponential dispersion model framework and connecting the normal, Poisson, and gamma distributions as special cases. -->
+Adding the Inverse Gaussian PDF and CDF was motivated by it representing the last remaining major case of the Tweedie family and its superior applicability for travel times and heavy-tailed data compared to the Gamma distribution.
 
-The Tweedie family is the final milestone of the distributions part. It is parameterised by a variance power *p* and a dispersion parameter $\phi$, together dictating the variance–mean relationship $\text{Var}(Y) = \phi \mu^p$. For the special case $1 < p < 2$, the Tweedie distribution is a compound Poisson–gamma process: the sum of the gamma-distributed severities of a Poisson-distributed number of events. This produces a distribution with a point mass at zero and a continuous positive density—naturally modelling zero-inflated positive continuous data like transit delay durations.
+**PDF (`z_dinvgauss`)**
 
-<!-- Topics to cover when implementing:
-     - Exponential dispersion models and the exponential family
-     - How Normal (p = 0), Poisson (p = 1), Gamma (p = 2), etc are special cases
-     - The compound Poisson–gamma interpretation for 1 < p < 2
-     - Connection to the tweedie_variance_power parameter in LightGBM
-     - The Dunn & Smyth series evaluation for the Tweedie density (if implementing dtweedie)
-     - This is the conceptual bridge to the GLM phase: the Tweedie family unifies the fitting procedure via IRLS
--->
+The probability density function $f(y | \mu, \lambda)$ is evaluated in log-space to ensure numerical stability in future MLE loops:
 
-#### Inverse Gaussian Distribution *(in progress)*
+$$
+\ln f(y) = \frac{1}{2}\ln(\lambda) - \frac{1}{2}\ln(2\pi) - \frac{3}{2}\ln(y) - \frac{\lambda(y - \mu)^2}{2\mu^2y}
+$$
 
-Rounding out the Tweedie Family, I will implement the PDF and CDF functions for the Inverse Gaussian distribution as well. Falls under the Tweedie family special case where the power parameter $p = 3$. 
+**CDF (`z_pinvgauss`)**
+
+Computes the cumulative probability for $Y \sim \text{IG}(\mu, \lambda)$, evaluated  through its relationship to the normal CDF with intermediate variables $z_1$ and $z_2$:
+
+$$
+F(y) = \Phi_{lower}(z_1) + \exp\left(\frac{2\lambda}{\mu}\right) \Phi_{lower}(z_2)
+$$
+
+Where:
+
+$$
+z_1 = \sqrt{\frac{\lambda}{y}} \left(\frac{y}{\mu} - 1\right), \quad z_2 = -\sqrt{\frac{\lambda}{y}} \left(\frac{y}{\mu} + 1\right)
+$$
+
+The absolute error magnification risk in the IG CDF correction term, with a very large exponential multiplying a very small normal CDF with a maximum absolute error magnitude $~10^{-7}$, motivated the need for the more precise `z_pnorm_std()` implementation using `libm::erfc()`. Even more extreme $\mu$ and $\lambda$ parameterisations that produce an overflowing exponential term are protected against by checking its log-space value against `f64::MAX.ln()`, and safely ignored if larger due to the correction term converging to 0 anyway via the shrinking normal CDF.
+
+`z_pinvgauss_rs()` computes the lower or upper tail by passing the boolean to the first normal CDF term and whether the following correction term is subsequently added or subtracted. The lower tail evaluation is shown above and so the upper tail is as follows:
+
+$$
+S(y) = \Phi_{upper}(z_1) - \exp\left(\frac{2\lambda}{\mu}\right) \Phi_{lower}(z_2)
+$$
+
+#### Tweedie Distribution
+
+The Tweedie family represents the capstone to the current pedagogical goals for implementing the normal, Poisson, Gamma, and Inverse Gaussian distributions. Their place within the Tweedie family helps me learn how their mean-variance relationships reflect a general power variance function $\text{Var}(Y) = \phi \mu^p$ emerging from the derivatives of their cumulant functions, and how they are unified under the exponential dispersion model framework.
+
+This implementation covers the $1 < p < 2$ special case, the compound Poisson-gamma distribution. The impetus leading me to initially learn about this special case and the Tweedie family was my search for a way to model positive continuous data with a large exact point mass at zero.
+
+Internal helper structs handle parameter conversions between the standard Tweedie parameters $(\mu, \phi, p)$ and the Poisson-gamma parameters $(\lambda, \alpha, \beta)$.
+
+**PDF (`z_dtweedie`)**
+
+Because the density $f(y | \lambda, \alpha, \beta)$ lacks a closed analytical form for $y > 0$, it is evaluated via the Dunn & Smyth (2005) infinite series expansion. The density is an infinite sum of Poisson-weighted gamma densities:
+
+$$
+f(y) = \sum_{k=1}^{\infty} \left( \frac{e^{-\lambda} \lambda^k}{k!} \right) \frac{\beta^{k\alpha}}{\Gamma(k\alpha)} y^{k\alpha - 1} e^{-\beta y}
+$$
+
+To handle the extreme dynamic range of the gamma densities across the series, all terms are computed in log-space. The algorithm begins with a hill-climbing search starting from $k = \lfloor\lambda\rfloor$ to locate the dominant term ($l_{\max}$). The series expands in both directions from this peak until terms drop below the machine-epsilon threshold relative to the maximum, and the accumulated log-terms are combined via a log-sum-exp evaluation. A fast-path point mass $e^{-\lambda}$ evaluates exactly $y = 0$.
+
+**CDF (`z_ptweedie`)**
+
+The cumulative distribution function $F(y)$ decomposes into the Poisson mass at zero plus the sum of Poisson-weighted Gamma cumulative probabilities:
+
+$$
+F(y) = e^{-\lambda} + \sum_{k=1}^{\infty} \left( \frac{e^{-\lambda} \lambda^k}{k!} \right) G(y; k\alpha, \beta)
+$$
+
+Where $G$ represents the regularised incomplete gamma function. Because each term is the product of a Poisson probability and a Gamma CDF and both are strictly bounded in $[0, 1]$, the series is safely accumulated in direct linear space, avoiding the dynamic range complexities of the density.
+
+The `lower_tail` argument is passed directly through to the underlying `z_pgamma_rs()` calls. Because `z_pgamma_rs()` dispatches between a Taylor series and Legendre's continued fraction based on the $z = \alpha + 1$ domain boundary to maximize precision, passing the tail flag down ensures the upper tail is computed securely without naively evaluating $1 - F(y)$ when $F(y)$ is close to 1.
 
 ## Planned Work
 
@@ -280,7 +326,11 @@ The package uses a dual-layer testing strategy:
 - **Rust unit tests** (`#[cfg(test)]`): verifies computational logic in isolation, independent of R. Run with `cargo test` from `src/rust/` or from script ui with a compatible IDE and Rust language tools.
 - **R integration tests** (`tests/testthat/`): verify the full R → FFI → Rust → R pipeline, including input validation in the R wrappers. Run with `devtools::test()`.
 
-### Notable Rust Tests
+### Notable Tests
+
+All of the reference values used in extreme case precision checks like the `z_pnorm` deep tail sigfig test were generated from WolframAlpha. The tests are also not comprehensive, domain-wide validations of the whole parameter spaces.
+
+**`z_pnorm` — Deep tail significand preservation**: Verifies that the updated normal CDF implementation using `libm::erfc()` maintains relative precision in the extreme tails. The probability at $z = -20$ at a magnitude of $~10^{-89}$ maintains accuracy to $10^{-13}$ relative error. 
 
 **`z_lgamma` — WolframAlpha benchmarks**: Known values computed via `N[Log[Gamma[z]], 25]` in WolframAlpha, verified to $10^{-15}$ tolerance (near full f64 precision). Includes integer, half-integer, and arbitrary real inputs.
 
@@ -298,18 +348,30 @@ The package uses a dual-layer testing strategy:
 
 **`z_lgamma_godfrey` — Cross-validation**: The Godfrey and Boost implementations are compared across a range of inputs, verifying agreement to $10^{-12}$ and confirming that two independent formulations of the Lanczos approximation converge to the same values.
 
+**`z_pinvgauss` - Extreme parameter safety**: Tests the correction term safety check with an aggressive exponential parameterisation ($\frac{2\lambda}{\mu} = 1000$).
+
+**`z_dtweedie` & `z_ptweedie` — PDF/CDF numerical consistency**: Computes the central-difference numerical derivative of the CDF and verifies it matches the independently computed PDF. Agreement to $10^{-4}$ cross-validates two independent infinite series implementations (density via log-sum-exp vs. CDF via direct accumulation).
+
+**`z_ptweedie` — Tail complementarity**: Verifies the mathematical invariant $F(y) + S(y) = 1.0$ to a tolerance of $10^{-14}$. This confirms that passing the tail-dispatch flag through to the underlying Poisson-weighted Gamma CDF series produces cohering tail results.
+
+**R-Level CRAN Cross-Validation**: Some R wrappers are tested against established CRAN reference packages. The Inverse Gaussian implementations match `statmod::dinvgauss` and `statmod::pinvgauss` to $10^{-15}$ and $10^{-15}$, respectively, for the tested inputs. 
+
+The Tweedie density series implementation matches the `tweedie` package down to $10^{-10}$ for most of the $p$ space, and $10^{-14}$ near the Poisson boundary. The Tweedie CDF `z_ptweedie` matches `ptweedie` to $10^{-13}$ and $10^{-15}$ depending on the test.
+
+<!-- ...proving mathematical soundness across extreme parameter spaces and independent algorithmic approaches (e.g., matching Dunn-Smyth series against Fourier inversion algorithms). -->
+
 ## References
 
+- Dunn, P. K., & Smyth, G. K. (2005). Series evaluation of Tweedie exponential dispersion model densities. Statistics and Computing, 15(4), 267–280. https://doi.org/10.1007/s11222-005-4070-y
 - Gautschi, W. (1972). Error Function and Fresnel Integrals. In M. Abramowitz & I. A. Stegun (Eds.), Handbook of Mathematical Functions with Formulas, Graphs, and Mathematical Tables (Tenth Printing, with corrections, Vol. 1–1, pp. 295–330). U.S. Government Printing Office. (Original work published 1964, U.S. Government Printing Office)
 - Godfrey, P. (2001). A note on the computation of the convergent Lanczos complex Gamma approximation [Unpublished manuscript].
-- Jørgensen, B. (1987). Exponential Dispersion Models. Journal of the Royal Statistical Society: Series B (Methodological), 49(2), 127–162. https://doi.org/10.1111/j.2517-6161.1987.tb01685.x
+- Jørgensen, B. (1987). Exponential Dispersion Models. Journal of the Royal Statistical Society: Series B (Methodological, 49(2), 127–162. https://doi.org/10.1111/j.2517-6161.1987.tb01685.x
 - Lanczos, C. (1964). A Precision Approximation of the Gamma Function. Journal of the Society for Industrial and Applied Mathematics: Series B, Numerical Analysis, 1, 86–96.
 - Maddock, J. & Boost.Math Authors. (2025). Boost.Math C++ Library (Version 1.90.0) [C++]. https://www.boost.org/doc/libs/latest/libs/math/doc/html/index.html
 - Press, W. H., Teukolsky, S. A., Vetterling, W. T., & Flannery, B. P. (2007). Numerical Recipes: The Art of Scientific Computing (3rd ed.). Cambridge University Press.
 - Pugh, G. R. (2004). An analysis of the Lanczos Gamma Approximation [Ph.D.]. University of British Columbia.
-
-
-<!-- TODO: Add Tweedie references like Dunn & Smyth 2005, etc. when applicable -->
+- Smyth, G., Chen, L., Hu, Y., Dunn, P., Phipson, B., & Chen, Y. (2025). statmod: Statistical Modeling (Version 1.5.1) [Computer software]. https://cran.r-project.org/web/packages/statmod/index.html
+- The Rust Project Developers. (2026). `libm`: Libm in pure Rust (Version 0.2.16) [Rust]. https://crates.io/crates/libm
 
 ## Licence
 

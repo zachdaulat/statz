@@ -1,7 +1,7 @@
 use core::f64;
 use extendr_api::prelude::*;
 use statrs::consts::{LN_PI, LN_SQRT_2PI};
-use std::f64::consts::{PI, SQRT_2};
+use std::f64::consts::{FRAC_1_SQRT_2, PI, SQRT_2};
 
 extendr_module! {
     mod distributions;
@@ -54,8 +54,10 @@ pub fn z_dnorm_rs(x: f64, mean: f64, sd: f64, log: bool) -> f64 {
 /// @export
 #[extendr]
 pub fn z_pnorm_std(z: f64, lower_tail: bool, log_p: bool) -> f64 {
+    // 0: Edge cases for fast paths handled implicity by libm::erfc()
+
     // 1: Build erfc() input u
-    let mut u: f64 = z / SQRT_2;
+    let mut u: f64 = z * FRAC_1_SQRT_2;
 
     // 2: Tail handling to adjust sign of u
     if lower_tail {
@@ -85,8 +87,6 @@ pub fn z_pnorm_std(z: f64, lower_tail: bool, log_p: bool) -> f64 {
 #[extendr]
 #[allow(non_upper_case_globals)]
 pub fn z_pnorm_as(z: f64, lower_tail: bool, log_p: bool) -> f64 {
-    // Ask about need to reference variables z, t, u, and use of const
-
     if z.is_nan() {
         return f64::NAN;
     }
@@ -597,8 +597,8 @@ pub fn z_lgamma(z: f64) -> f64 {
     ];
 
     // Core terms in Boost formulation
-    let t = z - 0.5;
-    let mut lgam = t * (z + G - 0.5).ln() - t;
+    let t: f64 = z - 0.5;
+    let mut lgam: f64 = t * (t + G).ln() - t;
 
     // Only evaluating the Lanczos sum (Boost authors' rational polynomial)
     // if the size of `lgam` doesn't just truncate the precision anyway
@@ -661,7 +661,7 @@ pub(crate) fn lower_gamma_series(a: f64, z: f64) -> f64 {
 pub(crate) fn upper_gamma_cf(a: f64, z: f64) -> f64 {
     let ln_prefix: f64 = (a * z.ln()) - z - z_lgamma(a);
 
-    // TINY constant for textbook Modified Lentz shock-absoption
+    // TINY constant for textbook Modified Lentz shock-absorption
     const TINY: f64 = 1e-30;
 
     // Initialise variables
@@ -713,7 +713,7 @@ pub(crate) struct TwParams {
 #[allow(unused)]
 impl TwParams {
     // Smart Constructor might be unnecessary with R-level input validation
-    // I can consider removing
+    // I can consider removing, or at least ignoring for now
     // Smart constructor ensuring valid Tweedie parameters
     pub fn new(mu: f64, phi: f64, power: f64) -> std::result::Result<Self, &'static str> {
         if mu <= 0.0 {
@@ -757,7 +757,7 @@ pub(crate) struct PgParams {
 #[allow(unused)]
 impl PgParams {
     // Smart Constructor might be unnecessary with R-level input validation
-    // I can consider removing
+    // I can consider removing, or at least ignoring for now
     // Smart constructor ensuring valid Poisson-Gamma parameters
     pub fn new(lambda: f64, shape: f64, rate: f64) -> std::result::Result<Self, &'static str> {
         if lambda <= 0.0 {
@@ -1787,7 +1787,8 @@ mod tests {
 
     #[test]
     fn test_tweedie_pdf_cdf_consistency() {
-        // The numerical derivative of the CDF should approximate the PDF.
+        // The central-difference numerical derivative of the CDF
+        // should approximate the PDF.
         // f(y) ≈ (F(y + h) - F(y - h)) / 2h
         let y = 2.5;
         let mu = 2.0;

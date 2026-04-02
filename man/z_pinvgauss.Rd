@@ -13,7 +13,7 @@ z_pinvgauss(y, mu, lambda, lower.tail = TRUE, log.p = FALSE)
 
 \item{lambda}{The shape parameter (λ > 0).}
 
-\item{lower.tail}{Logical; if TRUE (default), probabilities are P\link{Y <= y}, otherwise, P\link{Y > y}.}
+\item{lower.tail}{Logical; if TRUE (default), probabilities are P(Y ≤ y), otherwise, P(Y > y).}
 
 \item{log.p}{Logical; if TRUE, probabilities p are given as log(p).}
 }
