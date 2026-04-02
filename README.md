@@ -299,13 +299,16 @@ This will be benchmarked against R's native `stats::lm()` and possibly Python OL
 
 ### <a id="part-4"></a>Part 4 — Generalised Linear Models (`z_glm()`)
 
-IRLS (Iteratively Reweighted Least Squares) fitting for:
+IRLS fitting for:
 
 - Gaussian
 - Poisson
 - Quasi-Poisson
 - Gamma
+- Inverse Gaussian
 - Tweedie (compound Poisson-Gamma)
+
+Note: I anticipate the IRLS solver development will prioritise the Inverse Gaussian implementation. This would give me the desired pedagogical foundation for GLMs, linear algebra, and optimisation loops, while supporting future work modelling IG-distributed data and efficiently progressing to spatial tools.
 
 <!-- Topics:
      - Fisher scoring / Newton-Raphson connection
