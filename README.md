@@ -1,5 +1,9 @@
 # statz
 
+<!-- badges: start -->
+[![extendr](https://img.shields.io/badge/extendr-^0.9.0-276DC2)](https://extendr.github.io/extendr/extendr_api/)
+<!-- badges: end -->
+
 An R package with a Rust computational backend, built as a pedagogical implementation of core statistical functions. Beginning with descriptive statistics, through to probability distributions, linear models, and generalised linear models. The Rust computational core is bridged to R via [`extendr`](https://extendr.rs/).
 
 This is an in-development project intended to be a structured and focused but extendable statistics and data science learning plan, progressing toward causal inference techniques. Each function is implemented to facilitate my learning and understanding.

@@ -1059,6 +1059,7 @@ pub(crate) const LN_FACTORIALS: [f64; 16] = [
     27.89927138384089156608944,
 ];
 
+// ------------------ TESTS -----------------
 // Rust-side unit tests
 #[allow(clippy::excessive_precision)]
 #[allow(clippy::manual_range_contains)]

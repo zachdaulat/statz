@@ -2,28 +2,14 @@
   "rust-analyzer.linkedProjects": [
     "${workspaceFolder}/src/rust/Cargo.toml"
   ],
-  "rust-analyzer.check.command": "clippy",
-
   "files.associations": {
+    "Makevars": "makefile",
     "Makevars.in": "makefile",
     "Makevars.win": "makefile",
+    "Makevars.win.in": "makefile",
     "configure": "shellscript",
     "configure.win": "shellscript",
     "cleanup": "shellscript",
-    "cleanup.win": "shellscript",
-    "*.qmd": "quarto"
-  },
-
-  "files.exclude": {
-    "src/rust/target": true
-  },
-
-  "editor.formatOnSave": true,
-
-  "[rust]": {
-    "editor.defaultFormatter": "rust-lang.rust-analyzer",
-    "editor.formatOnSave": true
-  },
-
-  "files.eol": "\n"
+    "cleanup.win": "shellscript"
+  }
 }
