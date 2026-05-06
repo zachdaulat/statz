@@ -15,7 +15,7 @@
 #' @examples
 #' # Fit a basic model
 #' fit <- z_lm(mpg ~ wt + cyl, data = mtcars)
-z_lm <- function(formula, data, engine = c("naive", "qr", "svd")) {
+z_lm <- function(formula, data, engine = c("cholesky", "qr", "svd")) {
   # Matching the engine argument to the provided options
   engine <- rlang::arg_match(engine)
 
@@ -32,10 +32,10 @@ z_lm <- function(formula, data, engine = c("naive", "qr", "svd")) {
     rlang::abort("The response variable must be strictly numeric.")
   }
 
-  # --- 3. Dispatching to specified Rust enginer
+  # --- 3. Dispatching to specified Rust engine
   res <- switch(
     engine,
-    "naive" = z_lm_naive(x = x_mat, y = as.numeric(y_col)),
+    "cholesky" = z_lm_chol(x = x_mat, y = y_col),
     "qr" = rlang::abort("QR decomposition engine not yet implemented."),
     "svd" = rlang::abort("SVD engine not yet implemented.")
   )

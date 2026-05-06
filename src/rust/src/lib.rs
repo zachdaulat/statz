@@ -6,6 +6,7 @@ mod distributions;
 mod linear_models;
 // Future modules
 // mod spatial;
+mod archive;
 
 // Macro to export functions for R
 // I need to register functions here as I add to each module

@@ -1,7 +1,12 @@
 # statz
 
 <!-- badges: start -->
+[![Lifecycle: experimental](https://img.shields.io/badge/lifecycle-experimental-orange.svg)](https://lifecycle.r-lib.org/articles/stages.html#experimental)
 [![extendr](https://img.shields.io/badge/extendr-^0.9.0-276DC2)](https://extendr.github.io/extendr/extendr_api/)
+[![R: >= 4.0](https://img.shields.io/badge/R-%E2%89%A5%204.0-blue.svg)](https://cran.r-project.org/)
+[![Rust](https://img.shields.io/badge/Rust-built_with-orange.svg?logo=rust)](https://www.rust-lang.org/)
+[![Licence: MIT](https://img.shields.io/badge/Licence-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![R-CMD-check](https://github.com/zachdaulat/statz/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/zachdaulat/statz/actions/workflows/R-CMD-check.yaml)
 <!-- badges: end -->
 
 An R package with a Rust computational backend, built as a pedagogical implementation of core statistical functions. Beginning with descriptive statistics, through to probability distributions, linear models, and generalised linear models. The Rust computational core is bridged to R via [`extendr`](https://extendr.rs/).

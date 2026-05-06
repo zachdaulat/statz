@@ -1,5 +1,4 @@
 use std::f64;
-
 use extendr_api::prelude::*;
 use faer::{
     linalg::solvers::{Llt, Solve},
@@ -9,28 +8,30 @@ use faer::{
 
 extendr_module! {
     mod linear_models;
-    fn z_lm_naive;
+    fn z_lm_chol;
 }
 
 // ------------ EXTENDR INTERFACES -------------
 // R-Rust Extendr interface function
-/// Internal R wrapper for the naïve Cholesky OLS solver
+/// Internal Cholesky solver wrapper handling R <-> Rust type translation 
+/// bridging extendr interface with R and internal Rust-level faer types.
 ///
-/// Handles R <-> Rust type translation. Dispatches the numeric design matrix
-/// and response vector to the Rust Cholesky engine. Returns a list containing
-/// coefficients, standard errors, fitted values, residuals, residual degrees of
-/// freedom, and residual standard deviation.
+/// Dispatches the numeric design matrix and response vector to the Rust 
+/// Cholesky engine. Returns a list containing coefficients, standard errors, 
+/// fitted values, residuals, residual degrees of freedom, and residual 
+/// standard deviation.
 ///
 /// @export
 /// @keywords internal
 #[extendr]
-pub fn z_lm_naive(x: RMatrix<f64>, y: Doubles) -> extendr_api::Result<List> {
+pub fn z_lm_chol(x: RMatrix<f64>, y: Doubles) -> extendr_api::Result<List> {
     // --- 1. Converting & constructing intputs
-    let x_ref: MatRef<f64> = rmatrix_to_matref(&x);
-    let y_ref: ColRef<f64> = doubles_to_colref(&y);
+    // Uses new faer Ext traits
+    let x_ref: MatRef<f64> = x.as_mat_ref();
+    let y_ref: ColRef<f64> = y.as_col_ref();
 
     // --- 2. Compute results
-    let result: LmResult = lm_cholesky(x_ref, y_ref).map_err(Error::Other)?;
+    let result: LmResult = lm_chol(x_ref, y_ref).map_err(Error::Other)?;
 
     Ok(list!(
         coefficients = result.theta.iter().collect::<Doubles>(),
@@ -62,7 +63,7 @@ pub(crate) struct LmResult {
 
 // --- Rust engines
 // OLS engine using Cholesky factorisation
-pub(crate) fn lm_cholesky(x_mat: MatRef<f64>, y_col: ColRef<f64>) -> Result<LmResult, String> {
+pub(crate) fn lm_chol(x_mat: MatRef<f64>, y_col: ColRef<f64>) -> Result<LmResult, String> {
     // --- 1. Preparing inputs ---
     let n: usize = x_mat.nrows();
     let p: usize = x_mat.ncols();
@@ -101,30 +102,45 @@ pub(crate) fn lm_cholesky(x_mat: MatRef<f64>, y_col: ColRef<f64>) -> Result<LmRe
     })
 }
 
-// ---------- Helper Functions -----------
+// ---------- Extension Traits for R types with faer -----------
 
-// RMatrix to faer Mat conversion function
-// Zero-copy view of RMatrix
-pub(crate) fn rmatrix_to_matref<'a>(x: &'a RMatrix<f64>) -> MatRef<'a, f64> {
-    let nrows: usize = x.nrows();
-    let ncols: usize = x.ncols();
-    let data: &[f64] = x.data(); // This correctly returns &[f64]
-
-    // Explicitly use MatRef, not Mat
-    MatRef::from_column_major_slice(data, nrows, ncols)
+// Defining faer extension traits for R types
+pub(crate) trait FaerMatExt {
+    fn as_mat_ref(&self) -> MatRef<'_, f64>;
 }
 
-// Doubles to faer Col conversion function
-// Zero-copy view of Doubles
-pub(crate) fn doubles_to_colref<'a>(y: &'a Doubles) -> ColRef<'a, f64> {
-    // Drop down to the underlying Robj to extract the raw f64 slice safely
-    let data: &[f64] = y
-        .as_robj()
-        .as_real_slice()
-        .expect("Vector must be standard real numbers");
+pub(crate) trait FaerColExt {
+    fn as_col_ref(&self) -> ColRef<'_, f64>;
+}
 
-    // Explicitly use ColRef, not Col
-    ColRef::from_slice(data)
+// Implement for RMatrix
+impl FaerMatExt for RMatrix<f64> {
+    // RMatrix to faer Mat conversion function
+    // Zero-copy view of RMatrix
+    fn as_mat_ref(&self) -> MatRef<'_, f64> {
+        let nrows: usize = self.nrows();
+        let ncols: usize = self.ncols();
+        let data: &[f64] = self.data(); // Correctly returns &[f64]
+
+        // Explicitly use MatRef, not Mat
+        MatRef::from_column_major_slice(data, nrows, ncols)
+    }
+}
+
+// Implement for Doubles
+impl FaerColExt for Doubles {
+    // Doubles to faer Col conversion function
+    // Zero-copy view of Doubles
+    fn as_col_ref(&self) -> ColRef<'_, f64> {
+        // Drop down to the underlying Robj to extract the raw f64 slice safely
+        let data: &[f64] = self
+            .as_robj()
+            .as_real_slice()
+            .expect("Vector must be standard real numbers");
+
+        // Explicitly use ColRef, not Col
+        ColRef::from_slice(data)
+    }
 }
 
 // -------------------- TESTS ------------------------
@@ -144,7 +160,7 @@ mod tests {
         // Exact fit, no noise
         let y = col![5.0, 9.0, 13.0];
 
-        let res = lm_cholesky(x.as_mat_ref(), y.as_col_ref()).unwrap();
+        let res = lm_chol(x.as_mat_ref(), y.as_col_ref()).unwrap();
 
         // Check coefficients
         assert!((res.theta[0] - 1.0).abs() < 1e-10); // Intercept = 1
