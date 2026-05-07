@@ -25,7 +25,7 @@ extendr_module! {
 /// @keywords internal
 #[extendr]
 pub fn z_lm_chol(x: RMatrix<f64>, y: Doubles) -> extendr_api::Result<List> {
-    // --- 1. Converting & constructing intputs
+    // --- 1. Extract faer Ref views to R data
     // Uses new faer Ext traits
     let x_ref: MatRef<f64> = x.as_mat_ref();
     let y_ref: ColRef<f64> = y.as_col_ref();

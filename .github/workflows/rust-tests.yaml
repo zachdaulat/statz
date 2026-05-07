@@ -1,0 +1,26 @@
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+name: Rust-Tests
+
+jobs:
+  Rust-Tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/rust -> target
+
+      - name: Run Rust tests
+        working-directory: src/rust
+        run: cargo test

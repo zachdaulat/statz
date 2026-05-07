@@ -8,8 +8,7 @@ mod linear_models;
 // mod spatial;
 mod archive;
 
-// Macro to export functions for R
-// I need to register functions here as I add to each module
+// Macro to export modules to R
 extendr_module! {
     mod statz;
     use descriptive;

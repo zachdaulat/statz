@@ -7,6 +7,7 @@
 [![Rust](https://img.shields.io/badge/Rust-built_with-orange.svg?logo=rust)](https://www.rust-lang.org/)
 [![Licence: MIT](https://img.shields.io/badge/Licence-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![R-CMD-check](https://github.com/zachdaulat/statz/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/zachdaulat/statz/actions/workflows/R-CMD-check.yaml)
+[![Rust-Tests](https://github.com/zachdaulat/statz/actions/workflows/rust-tests.yaml/badge.svg)](https://github.com/zachdaulat/statz/actions/workflows/rust-tests.yaml)
 <!-- badges: end -->
 
 An R package with a Rust computational backend, built as a pedagogical implementation of core statistical functions. Beginning with descriptive statistics, through to probability distributions, linear models, and generalised linear models. The Rust computational core is bridged to R via [`extendr`](https://extendr.rs/).
