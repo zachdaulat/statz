@@ -4,7 +4,7 @@
 \alias{z_lm}
 \title{Fit a linear model via Rust backends}
 \usage{
-z_lm(formula, data, engine = c("naive", "qr", "svd"))
+z_lm(formula, data, engine = c("cholesky", "qr", "svd"))
 }
 \arguments{
 \item{formula}{An object ob class "formula" (or one that can be coerced to that class).}

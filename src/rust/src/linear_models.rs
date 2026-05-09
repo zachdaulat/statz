@@ -1,14 +1,15 @@
 use std::f64;
 use extendr_api::prelude::*;
 use faer::{
-    linalg::solvers::{Llt, Solve},
+    linalg::{solvers::{Llt, Solve, Qr, SolveLstsq}, triangular_inverse::*},
     mat::AsMatRef,
-    Col, ColRef, Mat, MatRef, Side,
+    Col, ColRef, Mat, MatRef, Side, Par,
 };
 
 extendr_module! {
     mod linear_models;
     fn z_lm_chol;
+    fn z_lm_qr;
 }
 
 // ------------ EXTENDR INTERFACES -------------
@@ -32,6 +33,33 @@ pub fn z_lm_chol(x: RMatrix<f64>, y: Doubles) -> extendr_api::Result<List> {
 
     // --- 2. Compute results
     let result: LmResult = lm_chol(x_ref, y_ref).map_err(Error::Other)?;
+
+    Ok(list!(
+        coefficients = result.theta.iter().collect::<Doubles>(),
+        std_errors = result.std_errors.iter().collect::<Doubles>(),
+        fitted_values = result.fitted.iter().collect::<Doubles>(),
+        residuals = result.resid.iter().collect::<Doubles>(),
+        df_residual = result.df,
+        sigma = result.sigma
+    ))
+}
+
+/// Dispatches the numeric design matrix and response vector to the Rust 
+/// QR decomposition-based OLS engine. Returns a list containing coefficients,
+/// standard errors, fitted values, residuals, residual degrees of freedom,
+/// and residual standard deviation
+/// 
+/// @export
+/// @keywords internal
+#[extendr]
+pub fn z_lm_qr(x: RMatrix<f64>, y: Doubles) -> extendr_api::Result<List> {
+    // --- 1. Extract faer Ref views to R data
+    // Uses new faer Ext traits
+    let x_ref: MatRef<f64> = x.as_mat_ref();
+    let y_ref: ColRef<f64> = y.as_col_ref();
+
+    // --- 2. Compute results
+    let result: LmResult = lm_qr(x_ref, y_ref).map_err(Error::Other)?;
 
     Ok(list!(
         coefficients = result.theta.iter().collect::<Doubles>(),
@@ -102,6 +130,56 @@ pub(crate) fn lm_chol(x_mat: MatRef<f64>, y_col: ColRef<f64>) -> Result<LmResult
     })
 }
 
+// OLS engine using QR decomposition
+pub(crate) fn lm_qr(x_mat: MatRef<f64>, y_col: ColRef<f64>) -> Result<LmResult, String> {
+    // --- 1. Preparing inputs ---
+    let n: usize = x_mat.nrows();
+    let p: usize = x_mat.ncols();
+    let df: f64 = (n - p) as f64;
+
+    // --- 2. QR Factorisation of X ---
+    let qr: Qr<f64> = x_mat.qr();
+
+    // --- 3. Solve least-squares problem directly
+    // This computes theta = argmin ||X*theta - y||
+    // Internally, applies Q^T to y, then back-substitutes against R
+    let theta: Col<f64> = qr.solve_lstsq(y_col);
+
+    // --- 4. Fitted values and residuals
+    let y_hat: Col<f64> = x_mat * &theta;
+    let resid: Col<f64> = y_col - &y_hat;
+    let sigma: f64 = (resid.squared_norm_l2() / df).sqrt();
+
+    // --- 5. Standard errors via R^{-1} ---
+    // Get R from the QR factorisation
+    let r_ref: MatRef<'_, f64> = qr.thin_R();
+
+    // Explicitly allocate new mutable p x p Mat of zeroes to hold inverse
+    let mut r_inv: Mat<f64> = Mat::zeros(p, p);
+
+    // Compute upper triangular inverse
+    invert_upper_triangular(r_inv.as_mut(), r_ref, Par::Seq);
+
+    // diag((X'X)^{-1})[i] = sum over k of (R^{-1})[i,k]^2
+    let std_errors: Col<f64> = (0..p)
+        .map(|i| {
+            let row_norm_sq: f64 = (i..p)
+                .map(|k| r_inv[(i, k)].powi(2))
+                .sum();
+            sigma * row_norm_sq.sqrt()
+        })
+        .collect::<Col<f64>>();
+    
+    Ok(LmResult {
+        theta,
+        std_errors,
+        fitted: y_hat,
+        resid,
+        df,
+        sigma,
+    })
+}
+
 // ---------- Extension Traits for R types with faer -----------
 
 // Defining faer extension traits for R types
@@ -161,6 +239,24 @@ mod tests {
         let y = col![5.0, 9.0, 13.0];
 
         let res = lm_chol(x.as_mat_ref(), y.as_col_ref()).unwrap();
+
+        // Check coefficients
+        assert!((res.theta[0] - 1.0).abs() < 1e-10); // Intercept = 1
+        assert!((res.theta[1] - 2.0).abs() < 1e-10); // Slope = 2
+
+        // Exact fit means sigma should be functionally zero
+        assert!(res.sigma < 1e-10);
+    }
+
+    #[test]
+    fn test_lm_qr_simple() {
+        // y = 2x_1 + 3x_2
+        let x = mat![[1.0, 2.0], [1.0, 4.0], [1.0, 6.0],];
+        // Exact fit, no noise
+        let y = col![5.0, 9.0, 13.0];
+
+        // Call the new QR engine
+        let res = lm_qr(x.as_mat_ref(), y.as_col_ref()).unwrap();
 
         // Check coefficients
         assert!((res.theta[0] - 1.0).abs() < 1e-10); // Intercept = 1

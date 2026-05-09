@@ -215,15 +215,25 @@ z_dinvgauss_rs <- function(y, mu, lambda, log) .Call(wrap__z_dinvgauss_rs, y, mu
 #' - Implements a structural overflow brake for extreme parameterisations (2λ/μ > 709).
 z_pinvgauss_rs <- function(y, mu, lambda, lower_tail, log_p) .Call(wrap__z_pinvgauss_rs, y, mu, lambda, lower_tail, log_p)
 
-#' Internal R wrapper for the naïve Cholesky OLS solver
+#' Internal Cholesky solver wrapper handling R <-> Rust type translation 
+#' bridging extendr interface with R and internal Rust-level faer types.
 #'
-#' Handles R <-> Rust type translation. Dispatches the numeric design matrix
-#' and response vector to the Rust Cholesky engine. Returns a list containing
-#' coefficients, standard errors, fitted values, residuals, residual degrees of
-#' freedom, and residual standard deviation.
+#' Dispatches the numeric design matrix and response vector to the Rust 
+#' Cholesky engine. Returns a list containing coefficients, standard errors, 
+#' fitted values, residuals, residual degrees of freedom, and residual 
+#' standard deviation.
 #'
 #' @export
 #' @keywords internal
-z_lm_naive <- function(x, y) .Call(wrap__z_lm_naive, x, y)
+z_lm_chol <- function(x, y) .Call(wrap__z_lm_chol, x, y)
+
+#' Dispatches the numeric design matrix and response vector to the Rust 
+#' QR decomposition-based OLS engine. Returns a list containing coefficients,
+#' standard errors, fitted values, residuals, residual degrees of freedom,
+#' and residual standard deviation
+#' 
+#' @export
+#' @keywords internal
+z_lm_qr <- function(x, y) .Call(wrap__z_lm_qr, x, y)
 
 # nolint end

@@ -32,11 +32,14 @@ z_lm <- function(formula, data, engine = c("cholesky", "qr", "svd")) {
     rlang::abort("The response variable must be strictly numeric.")
   }
 
+  # Explicit coersion to R's double precision float if integer
+  y_col <- as.double(y_col)
+
   # --- 3. Dispatching to specified Rust engine
   res <- switch(
     engine,
     "cholesky" = z_lm_chol(x = x_mat, y = y_col),
-    "qr" = rlang::abort("QR decomposition engine not yet implemented."),
+    "qr" = z_lm_qr(x = x_mat, y = y_col),
     "svd" = rlang::abort("SVD engine not yet implemented.")
   )
 
