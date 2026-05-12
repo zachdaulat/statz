@@ -287,10 +287,6 @@ Where $G$ represents the regularised incomplete gamma function. Because each ter
 
 The `lower_tail` argument is passed directly through to the underlying `z_pgamma_rs()` calls. Because `z_pgamma_rs()` dispatches between a Taylor series and Legendre's continued fraction based on the $z = \alpha + 1$ domain boundary to maximize precision, passing the tail flag down ensures the upper tail is computed securely without naively evaluating $1 - F(y)$ when $F(y)$ is close to 1.
 
-## Planned Work
-
-The linear algebra implementations in parts 3 and 4 will use the [`faer`](https://crates.io/crates/faer) Rust crate. `faer` is a general-purpose, Rust-native linear algebra library optimised for large and dense matrix operations at the scale typical for statistical computing, rather than the low-dimensional operations common in graphics or game development.
-
 ### <a id="part-3"></a>Part 3 — Linear Models (`z_lm()`)
 
 Three implementations of ordinary least squares regression, progressively improving in numerical stability as I learn linear algebra:
@@ -306,6 +302,15 @@ I also have a three-tier testing strategy in mind:
 - Scalability: Statistics Canada Census PUMF
 
 This will be benchmarked against R's native `stats::lm()` and possibly Python OLS implementations like from `statsmodels` and `sklearn`.
+
+OLS engines completed:
+
+- Cholesky factorisation of normal equation (`z_lm_chol()`)
+- QR factorisation (`z_lm_qr()`)
+
+## Planned Work
+
+The linear algebra implementations in parts 3 and 4 will use the [`faer`](https://crates.io/crates/faer) Rust crate. `faer` is a general-purpose, Rust-native linear algebra library optimised for large and dense matrix operations at the scale typical for statistical computing, rather than the low-dimensional operations common in graphics or game development.
 
 ### <a id="part-4"></a>Part 4 — Generalised Linear Models (`z_glm()`)
 

@@ -31,4 +31,6 @@ jobs:
 
       - name: Run Rust tests
         working-directory: src/rust
-        run: cargo test
+        run: |
+          export LD_LIBRARY_PATH=$(R RHOME)/lib:$LD_LIBRARY_PATH
+          cargo test
