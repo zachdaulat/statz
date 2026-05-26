@@ -236,4 +236,18 @@ z_lm_chol <- function(x, y) .Call(wrap__z_lm_chol, x, y)
 #' @keywords internal
 z_lm_qr <- function(x, y) .Call(wrap__z_lm_qr, x, y)
 
+#' An R interface to Eigendecomposition performed by `faer` in Rust. 
+#' Essentially replicates `base::eigen()` for symmetric matrices but 
+#' using the Rust-native `faer` utilities instead of LAPACK.
+#' 
+#' @export
+z_eigen <- function(x) .Call(wrap__z_eigen, x)
+
+#' An R interface to Singular Value Decomposition performed by `faer` in Rust.
+#' Essentially replicates `base::svd()` but using the Rust-native 
+#' `faer` utilities instead of LAPACK.
+#' 
+#' @export
+z_svd <- function(x) .Call(wrap__z_svd, x)
+
 # nolint end

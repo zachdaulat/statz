@@ -1,7 +1,8 @@
 use std::f64;
 use extendr_api::prelude::*;
 use faer::{
-    linalg::{solvers::{Llt, Solve, Qr, SolveLstsq}, triangular_inverse::*},
+    linalg::{solvers::{Llt, Solve, Qr, SolveLstsq, SelfAdjointEigen, Svd}, triangular_inverse::*},
+    diag::DiagRef,
     mat::AsMatRef,
     Col, ColRef, Mat, MatRef, Side, Par,
 };
@@ -10,6 +11,8 @@ extendr_module! {
     mod linear_models;
     fn z_lm_chol;
     fn z_lm_qr;
+    fn z_eigen;
+    fn z_svd;
 }
 
 // ------------ EXTENDR INTERFACES -------------
@@ -72,6 +75,54 @@ pub fn z_lm_qr(x: RMatrix<f64>, y: Doubles) -> extendr_api::Result<List> {
 }
 
 // ------------ RUST ENGINES -------------------
+
+// Linear algebra interfaces in R to the `faer` implementations
+
+/// An R interface to Eigendecomposition performed by `faer` in Rust. 
+/// Essentially replicates `base::eigen()` for symmetric matrices but 
+/// using the Rust-native `faer` utilities instead of LAPACK.
+/// 
+/// @export
+#[extendr]
+pub fn z_eigen(x: RMatrix<f64>) -> extendr_api::Result<List> {
+    // Instantiate eigendecomposition from RMatrix
+    let eigen: SelfAdjointEigen<f64> = SelfAdjointEigen::new(x.as_mat_ref(), faer::Side::Lower).map_err(|_| {
+        Error::Other("Error during eigendecomposition".into())
+    })?;
+
+    // Extracting views of the values and vectors from the eigendecomposition
+    let eigenvalues: DiagRef<f64> = eigen.S();
+    let eigenvectors: MatRef<f64> = eigen.U();
+
+    Ok(list!(
+        values = eigenvalues.column_vector().iter().collect::<Doubles>(),
+        vectors = eigenvectors.as_rmatrix()
+    ))
+}
+
+/// An R interface to Singular Value Decomposition performed by `faer` in Rust.
+/// Essentially replicates `base::svd()` but using the Rust-native 
+/// `faer` utilities instead of LAPACK.
+/// 
+/// @export
+#[extendr]
+pub fn z_svd(x: RMatrix<f64>) -> extendr_api::Result<List> {
+    // Instantiate singular value decomposition from RMatrix
+    let svd: Svd<f64> = Svd::new(x.as_mat_ref()).map_err(|_| {
+        Error::Other("Error during singular value decomposition".into())
+    })?;
+
+    // Extracting views of the singular values and the U and V factors
+    let singular_values: DiagRef<f64> = svd.S();
+    let u: MatRef<f64> = svd.U();
+    let v: MatRef<f64> = svd.V();
+
+    Ok(list!(
+        d = singular_values.column_vector().iter().collect::<Doubles>(),
+        u = u.as_rmatrix(),
+        v = v.as_rmatrix(),
+    ))
+}
 
 // --- Rust structs standardiizng outputs
 // OLS Result struct
@@ -182,7 +233,7 @@ pub(crate) fn lm_qr(x_mat: MatRef<f64>, y_col: ColRef<f64>) -> Result<LmResult, 
 
 // ---------- Extension Traits for R types with faer -----------
 
-// Defining faer extension traits for R types
+// Defining extension traits bridging R and faer types
 pub(crate) trait FaerMatExt {
     fn as_mat_ref(&self) -> MatRef<'_, f64>;
 }
@@ -190,6 +241,14 @@ pub(crate) trait FaerMatExt {
 pub(crate) trait FaerColExt {
     fn as_col_ref(&self) -> ColRef<'_, f64>;
 }
+
+pub(crate) trait RMatrixExt {
+    fn as_rmatrix(&self) -> RMatrix<f64>;
+}
+
+// pub(crate) trait RVectorExt {
+//     fn as_doubles(&self) -> Doubles;
+// }
 
 // Implement for RMatrix
 impl FaerMatExt for RMatrix<f64> {
@@ -220,6 +279,24 @@ impl FaerColExt for Doubles {
         ColRef::from_slice(data)
     }
 }
+
+impl RMatrixExt for MatRef<'_, f64> {
+    fn as_rmatrix(&self) -> RMatrix<f64> {
+        let nrows: usize = self.nrows();
+        let ncols: usize = self.ncols();
+
+        // Using new_matrix to dynamicaly allocate and populate the R matrix.
+        // It iterates over the dimensions, calling the closure to pull the 
+        // (r, c) value from the faer MatRef
+        RMatrix::new_matrix(nrows, ncols, |r, c| self[(r, c)])
+    }
+}
+
+// impl RVectorExt for DiagRef<'_, f64> {
+//     fn as_doubles(&self) -> Doubles {
+        
+//     }
+// }
 
 // -------------------- TESTS ------------------------
 // Rust-side unit tests
