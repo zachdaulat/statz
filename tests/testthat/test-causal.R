@@ -26,6 +26,8 @@ generate_mock_buckets <- function(n_buckets = 5, j_donors = 3, n_obs = 50,
 }
 
 test_that("Independent solver reference test matches quadprog", {
+
+  testthat::skip_if_not_installed("quadprog")
   
   # 1. Setup
   j_donors <- 3

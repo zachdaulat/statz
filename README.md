@@ -30,9 +30,9 @@ This is an in-development project intended to be a structured and focused but ex
     - [Inverse Gaussian Distribution](#inverse-gaussian-distribution)
     - [Tweedie Distribution](#tweedie-distribution)
   - [Part 3 — Linear Models](#part-3)
+  - [Part 4 — Causal Inference](#part-4)
 - [Planned Work](#planned-work)
-  - [Part 4 — Generalised Linear Models](#part-4)
-  - [Parts 5+ — Causal Inference and Spatial Statistics](#parts-5)
+  - [Parts 5+ — Generalized Linear Models & Spatial Statistics](#part-5)
 - [Testing](#testing)
   - [Notable Tests](#notable-tests)
 - [References](#references)
@@ -308,13 +308,51 @@ OLS engines completed:
 - Cholesky factorisation of normal equation (`z_lm_chol()`)
 - QR factorisation (`z_lm_qr()`)
 
+### <a id="part-4"></a>Part 4 — Causal Inference
+
+This module shifts the package's focus from foundational statistics and pedagogically-focused replications, toward applied econometric methods for causal inference.
+
+| Function | Description | Method |
+|----------|-------------|-----------|
+| `z_dsc(data, ...)` | Distributional Synthetic Control | 2-Wasserstein distance minimization via projected gradient descent |
+
+#### Distributional Synthetic Controls (`z_dsc`)
+
+First a distributional synthetic control. Instead of matching a treated unit's *mean* outcome to a weighted combination of donors units as in classical SCM, `z_dsc()` matches the treated units *distribution*, in each pre-treatment time bucket, to a weighted Wasserstein barycenter of donor distributions. It extends the aggregate distributional SCM of Gunsilius (2023) with L2-regularized donor weights.
+
+The objective function:
+
+$$
+\mathbf{w}^* = \underset{\mathbf{w} \in \Delta^{J}}{\arg\min} \ \frac{1}{Q T_0} \sum_{t=1}^{T_0} \left\| \mathbf{a}^{(t)} - D^{(t)}\mathbf{w} \right\|_2^2 + \lambda \| \mathbf{w} \|_2^2
+$$
+
+where:
+
+-   $\mathbf{a}^{(t)} \in \mathbb{R}^{Q}$ — the treated unit's empirical quantile function in pre-treatment bucket $t$ evaluated on a grid of $Q$ quantile levels
+-   $D^{(t)} \in \mathbb{R}^{Q \times J}$ — $J$ donors' empirical quantile functions in bucket $t$, evaluated on a shared $Q$-point probability grid
+-   $\mathbf{w} = (w_1, \dots, w_J)$ — the donor weight vector, constrained to the probability simplex $\Delta_{J} = \{\mathbf{w} : w_{j} \geq 0,\ \sum_{j} w_{j} = 1\}$
+-   $T_{0}$ is the number of pre-treatment buckets in the time series
+-   $\lambda \geq 0$ is the L2 (ridge) penalty parameter.
+
+The squared-quantile term is the discretized squared 2-Wasserstein distance between the treated unit's quantile function and the weighted Wasserstein barycenter of the donor units.
+
+**How it works**
+
+Each bucket's Gram matrix $D^{(t)\top} D{(t)}$ and cross term $D^{(t)\top} \mathbf{a}^{(t)}$ is accumulated to compress the full panel into a single $J \times J$ system and $J$-length vector before the optimization loop. The constrained problem is then solved by projected gradient descent, an ordinary gradient step followed by Euclidean projection back onto the simplex, repeated until convergence. The step size and a set of donor-pool diagnostics (effective rank, condition numbers, singular value spectra, with and without the ridge penalty) are derived from the Gram matrix's eigendecomposition.
+
+**How it differs from DiSCo**
+
+First, `z_dsc()` minimizes one *pooled* objective across all temporal buckets for a single shared weight vector, whereas `DiSCo` fits weights per period and averages them after. Second, the L2 penalty was added to stabilize weights between highly collinear donors instead of their split being driven by noise.
+
+The optimizer's correctness is cross-validated in the test suite against the quadratic-programming solver `quadprog::solve.QP()`, confirming the projected-gradient solution matches with QP solution within numerical tolerance.
+
 ## Planned Work
 
 The linear algebra implementations in parts 3 and 4 will use the [`faer`](https://crates.io/crates/faer) Rust crate. `faer` is a general-purpose, Rust-native linear algebra library optimised for large and dense matrix operations at the scale typical for statistical computing, rather than the low-dimensional operations common in graphics or game development.
 
-### <a id="part-4"></a>Part 4 — Generalised Linear Models (`z_glm()`)
+### <a id="part-5"></a>Parts 5+ — Generalized Linear Models & Spatial Statistics
 
-IRLS fitting for:
+Generalized Linear Model (`z_glm()`) IRLS fitting for:
 
 - Gaussian
 - Poisson
@@ -332,8 +370,6 @@ Note: I anticipate the IRLS solver development will prioritise the Inverse Gauss
      - Dispersion parameter estimation
      - Connection to Module 2 (King Street DiD): the z_glm() with gamma family will be used for travel time reliability modelling
 -->
-
-### <a id="parts-5"></a>Parts 5+ — Causal Inference and Spatial Statistics (planned)
 
 Difference-in-differences estimation, spatial weight matrices, and spatial econometrics tools.
 
