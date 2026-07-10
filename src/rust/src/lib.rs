@@ -4,6 +4,7 @@ use extendr_api::prelude::*;
 mod descriptive;
 mod distributions;
 mod linear_models;
+mod causal;
 // Future modules
 // mod spatial;
 mod archive;
@@ -14,4 +15,5 @@ extendr_module! {
     use descriptive;
     use distributions;
     use linear_models;
+    use causal;
 }

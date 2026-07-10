@@ -1,3 +1,4 @@
+use faer::{Col};
 use extendr_api::prelude::*;
 
 // Registering this module's functions
@@ -142,6 +143,50 @@ pub fn z_cor_onepass(x: &[f64], y: &[f64]) -> f64 {
     numer / denom
 }
 
+// // Future quantile function for export to R using Rust level function
+// #[extendr]
+// pub fn z_quantile(x: Doubles, probs: Doubles) -> Doubles {
+//     // 1. Converting Doubles inputs to slices
+//     let x_slice = x.as_slice();
+//     let probs_slice = probs.as_slice();
+
+//     // 2. Calling core engine quantile()
+//     let quantiles_col: Col<f64> = quantile(x_slice, probs_slice);
+
+//     // 3. Converting Col<f64> to R's Doubles
+//     quantiles_col.iter().collect::<Doubles>()
+// }
+
+// Internally used empirical quantile function
+pub(crate) fn quantile(x: &[f64], probs: &[f64]) -> Col<f64> {
+    // Guarding against empty slices to prevent usize underflow
+    if x.is_empty() {
+        return Col::full(probs.len(), f64::NAN);
+    }
+    // Get length of sample 0-indexed
+    let n: usize = x.len() - 1;
+    let n_f64: f64 = n as f64;
+
+    // 1. Copying and sorting the sample
+    let mut x_sort: Vec<f64> = x.to_vec();
+    x_sort.sort_by(|a: &f64, b: &f64| a.total_cmp(b));
+
+    // 2. Initialize and populate new Col<f64>
+    Col::from_fn(probs.len(), |i| {
+        let p: f64 = probs[i];
+        let index: f64 = p * (n_f64);
+        let j: usize = index.floor() as usize;
+        let gamma: f64 = index - index.floor();
+
+        // Guard against single-observation buckets and upper boundary p=1
+        if j >= n {
+            x_sort[n]
+        } else {
+            (1.0 - gamma) * x_sort[j] + gamma * x_sort[j + 1]
+        }
+    })
+}
+
 // Rust-side unit tests
 #[cfg(test)]
 mod tests {
@@ -205,5 +250,82 @@ mod tests {
         let x = vec![2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0];
         let y = vec![1.0, 3.0, 5.0, 2.0, 7.0, 6.0, 8.0, 4.0];
         assert!((z_cor(&x, &y) - z_cor_onepass(&x, &y)).abs() < 1e-10);
+    }
+
+    // ==========================================
+    // Tests for quantile
+    // ==========================================
+
+    // Import everything from the parent module
+    use faer::{col, Col};
+
+    /// Helper function for safe floating-point comparison of faer columns
+    fn assert_col_eq(a: &Col<f64>, b: &Col<f64>, tol: f64) {
+        assert_eq!(a.nrows(), b.nrows(), "Dimension mismatch");
+        for i in 0..a.nrows() {
+            assert!(
+                (a[i] - b[i]).abs() < tol,
+                "Mismatch at index {}: {} vs {}",
+                i,
+                a[i],
+                b[i]
+            );
+        }
+    }
+
+    #[test]
+    fn test_quantile_sorted_data() {
+        // Basic test with pre-sorted data checking standard quartiles
+        let data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let probs = vec![0.0, 0.5, 1.0];
+        
+        // Adjust the path to crate::descriptive::quantile if this test 
+        // is housed outside the descriptive module
+        let q = crate::descriptive::quantile(&data, &probs);
+        let expected = col![1.0, 3.0, 5.0];
+        
+        assert_col_eq(&q, &expected, 1e-9);
+    }
+
+    #[test]
+    fn test_quantile_unsorted_data() {
+        // The quantile function should handle unsorted memory seamlessly
+        let data = vec![5.0, 1.0, 4.0, 2.0, 3.0];
+        let probs = vec![0.25, 0.75];
+        
+        let q = crate::descriptive::quantile(&data, &probs);
+        
+        // Assuming R's Type 7 interpolation: 
+        // 25th percentile of 1:5 is 2.0, 75th percentile is 4.0
+        let expected = col![2.0, 4.0];
+        
+        assert_col_eq(&q, &expected, 1e-9);
+    }
+
+    #[test]
+    fn test_quantile_single_observation() {
+        // A bucket with only 1 observation should return that observation 
+        // for any requested probability, without triggering an out-of-bounds panic.
+        let data = vec![42.0];
+        let probs = vec![0.1, 0.5, 0.9];
+        
+        let q = crate::descriptive::quantile(&data, &probs);
+        let expected = col![42.0, 42.0, 42.0];
+        
+        assert_col_eq(&q, &expected, 1e-9);
+    }
+
+    #[test]
+    fn test_quantile_empty_slice() {
+        // An empty slice should gracefully return a column of NaNs 
+        // to prevent usize underflow panics.
+        let data: Vec<f64> = vec![];
+        let probs = vec![0.25, 0.75];
+        
+        let q = crate::descriptive::quantile(&data, &probs);
+        
+        assert_eq!(q.nrows(), 2);
+        assert!(q[0].is_nan(), "Expected NaN for empty slice");
+        assert!(q[1].is_nan(), "Expected NaN for empty slice");
     }
 }

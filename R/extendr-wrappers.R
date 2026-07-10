@@ -250,4 +250,6 @@ z_eigen <- function(x) .Call(wrap__z_eigen, x)
 #' @export
 z_svd <- function(x) .Call(wrap__z_svd, x)
 
+z_dsc_rs <- function(treated, donors, n_quantiles, lambda, max_iter, tol) .Call(wrap__z_dsc_rs, treated, donors, n_quantiles, lambda, max_iter, tol)
+
 # nolint end

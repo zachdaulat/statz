@@ -94,6 +94,7 @@ pub fn z_eigen(x: RMatrix<f64>) -> extendr_api::Result<List> {
     let eigenvalues: DiagRef<f64> = eigen.S();
     let eigenvectors: MatRef<f64> = eigen.U();
 
+    // Converting DiagRef to ColRef view with .columne_vector() so its iterable
     Ok(list!(
         values = eigenvalues.column_vector().iter().collect::<Doubles>(),
         vectors = eigenvectors.as_rmatrix()
@@ -117,10 +118,11 @@ pub fn z_svd(x: RMatrix<f64>) -> extendr_api::Result<List> {
     let u: MatRef<f64> = svd.U();
     let v: MatRef<f64> = svd.V();
 
+    // Converting DiagRef to ColRef view with .columne_vector() so its iterable
     Ok(list!(
         d = singular_values.column_vector().iter().collect::<Doubles>(),
         u = u.as_rmatrix(),
-        v = v.as_rmatrix(),
+        v = v.as_rmatrix()
     ))
 }
 
@@ -285,7 +287,7 @@ impl RMatrixExt for MatRef<'_, f64> {
         let nrows: usize = self.nrows();
         let ncols: usize = self.ncols();
 
-        // Using new_matrix to dynamicaly allocate and populate the R matrix.
+        // Using new_matrix to dynamically allocate and populate the R matrix.
         // It iterates over the dimensions, calling the closure to pull the 
         // (r, c) value from the faer MatRef
         RMatrix::new_matrix(nrows, ncols, |r, c| self[(r, c)])

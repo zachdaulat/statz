@@ -1,13 +1,15 @@
 Package: statz
-Title: Statistical Functions with a Rust Backend
-Version: 0.0.0.9000
+Title: Statistical Functions with Rust Engines
+Version: 0.1.1
 Authors@R: 
     person("Zachary", "Daulat", role = c("aut", "cre"),
            email = "zdaulat@gmail.com")
-Description: Pedagogical implentation of statistical functions 
-    and tools using Rust via extendr. Covers descriptive statistics,
-    probability distributions, regressions, and 
-    spatial analysis methods.
+Description: Pedagogical implentation of statistical and causal inference 
+    functions and tools using Rust via extendr. Strictly pedagogical
+    implementations cover descriptive statistics, probability distributions, 
+    regressions, and spatial analysis methods. Includes a variation of 
+    Distributional Synthetic Controls (DiSC) via 2-Wasserstein distance
+    minimization with L2 regularization for highly collinear donor pools.
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
