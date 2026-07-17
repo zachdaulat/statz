@@ -6,11 +6,12 @@
 \usage{
 z_dsc(
   data,
+  response,
   unit_id,
-  time,
-  value,
   treated_unit,
-  bucket = NULL,
+  bucket,
+  time = NULL,
+  center = FALSE,
   n_quantiles = 100L,
   lambda = 0.1,
   max_iter = 10000L,
@@ -20,17 +21,19 @@ z_dsc(
 \arguments{
 \item{data}{A data frame or tibble.}
 
+\item{response}{Unquoted column name containing the distribution response values,
+as in the target variable to be replicated by the synthetic control.}
+
 \item{unit_id}{Unquoted column name containing the unit identifiers.}
-
-\item{time}{Unquoted column name containing the time series.}
-
-\item{value}{Unquoted column name containing the distribution values,
-ie. the target variable to be replicated by the synthetic control.}
 
 \item{treated_unit}{The specific identifier in \code{unit_id} represeting the treated unit.}
 
-\item{bucket}{Optional string (e.g., "1 hour", "1 day") to aggregate time using lubridate,
-or an unquoted column name containing a custom string or factor grouping variable (e.g., period_name).}
+\item{bucket}{Optional string (e.g., "1 hour", "1 day") to aggregate time,
+or an unquoted column name containing a string or factor grouping variable (e.g., period_name).}
+
+\item{time}{Unquoted column name containing the time series.}
+
+\item{center}{Logical. If TRUE, centers distributions to extract a scalar location shift (alpha).}
 
 \item{n_quantiles}{Integer. Number of quantiles sampled for the Wasserstein grid}
 
@@ -41,7 +44,7 @@ or an unquoted column name containing a custom string or factor grouping variabl
 \item{tol}{Numeric. Convergence tolerance.}
 }
 \value{
-An object of class \code{z_dsc}
+A model object of class \code{z_dsc}
 }
 \description{
 Fit a Distributional Synthetic Control

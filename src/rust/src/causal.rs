@@ -12,6 +12,8 @@ extendr_module! {
     fn z_dsc_rs;
 }
 
+// Future refinement when doing bootstrapping, modularize into separate functions
+// to enable crate-level testing with wrapper doing R object view conversion?
 // Distributional synthetic controls implementation
 #[extendr]
 #[allow(non_snake_case)]
@@ -203,6 +205,7 @@ pub fn z_dsc_rs(
         loss_penalized = obj_penalized,
         converged = converged,
         n_iterations = n_iter,
+        probs = probs.iter().collect::<Doubles>(),
         effective_rank = effective_rank,
         right_singular_vectors = evecs.as_rmatrix(),
         svs = svs.iter().collect::<Doubles>(),

@@ -149,59 +149,52 @@ test_that("Convergence controls limit execution", {
 })
 
 test_that("z_dsc() wrapper correctly routes valid data and returns S3 object", {
-  # 1. Construct a minimal valid rectangular panel (30 rows = 5 obs per bucket)
   valid_df <- tibble::tibble(
     street = rep(c("King", "Queen", "Dundas"), times = 10),
     period = rep(as.POSIXct(c("2026-07-08 08:00:00", "2026-07-08 09:00:00")), each = 15),
     delay = runif(30, 1, 10)
   )
   
-  # 2. Run the wrapper (Testing tidy evaluation and S3 construction)
+  # Notice: bucket is now explicitly placed before time
   res <- z_dsc(
     data = valid_df,
+    response = delay,
     unit_id = street,
-    time = period,
-    value = delay,
     treated_unit = "King",
     bucket = "1 hour",
+    time = period,
     n_quantiles = 10, 
     lambda = 0.1
   )
   
-  # 3. Assertions
   expect_s3_class(res, "z_dsc")
-  expect_equal(length(res$weights), 2) # Queen and Dundas
+  expect_equal(length(res$weights), 2) 
   expect_equal(res$params$treated_unit, "King")
   expect_equal(res$params$n_buckets, 2)
 })
 
 test_that("z_dsc() wrapper aggressively guards against degenerate data", {
-  
   base_df <- tibble::tibble(
     street = rep(c("King", "Queen"), times = 2),
-    time = c(1, 1, 2, 2),
+    time_col = c(1, 1, 2, 2),
     delay = c(5, 4, 6, 5)
   )
   
-  # 1. Test NA rejection
   df_na <- base_df
   df_na$delay[1] <- NA
   expect_error(
-    z_dsc(df_na, street, time, delay, "King"),
+    z_dsc(df_na, delay, street, "King", time_col),
     regexp = "contains NAs"
   )
   
-  # 2. Test missing treated unit rejection
   expect_error(
-    z_dsc(base_df, street, time, delay, "Richmond"),
+    z_dsc(base_df, delay, street, "Richmond", time_col),
     regexp = "not found in the unit column"
   )
   
-  # 3. Test unbalanced panel rejection
-  # Remove one observation so Queen is missing in period 2
   df_unbalanced <- base_df[-4, ] 
   expect_error(
-    z_dsc(df_unbalanced, street, time, delay, "King"),
+    z_dsc(df_unbalanced, delay, street, "King", time_col),
     regexp = "Unbalanced panel"
   )
 })
@@ -213,14 +206,11 @@ test_that("S3 methods execute correctly", {
     delay = runif(30, 1, 10)
   )
   
-  res <- z_dsc(valid_df, street, period, delay, "King")
+  res <- z_dsc(valid_df, delay, street, "King", period)
   
-  # Ensure print and summary do not throw errors
-  # cli outputs to stderr, so simply assert no errors are thrown
   expect_error(print(res), NA)
   expect_error(summary(res), NA)
   
-  # Ensure broom::tidy returns a tibble with correct dimensions
   res_tidy <- broom::tidy(res)
   expect_s3_class(res_tidy, "tbl_df")
   expect_equal(nrow(res_tidy), 2)
@@ -228,19 +218,34 @@ test_that("S3 methods execute correctly", {
 })
 
 test_that("z_dsc() safely processes single-observation buckets", {
-  # 1 observation per unit per bucket
   valid_df_single <- tibble::tibble(
     street = rep(c("King", "Queen", "Dundas"), times = 2),
     period = rep(1:2, each = 3),
     delay = runif(6, 1, 10)
   )
   
-  # Should trigger the cli_warning but NOT crash
   expect_warning(
-    res <- z_dsc(valid_df_single, street, period, delay, "King"),
+    res <- z_dsc(valid_df_single, delay, street, "King", period),
     regexp = "smallest bucket has only 1 observations"
   )
   
   expect_s3_class(res, "z_dsc")
   expect_true(res$diagnostics$converged)
+})
+
+test_that("z_dsc() center argument correctly extracts alpha shift", {
+  valid_df <- tibble::tibble(
+    street = rep(c("King", "Queen", "Dundas"), times = 10),
+    period = rep(1:2, each = 15),
+    delay = ifelse(street == "King", 
+                   runif(30, 15, 20), 
+                   runif(30, 5, 10))
+  )
+  
+  res_centered <- z_dsc(valid_df, delay, street, "King", period, center = TRUE)
+  res_tidy <- broom::tidy(res_centered)
+  
+  expect_true(res_centered$params$center)
+  expect_true(res_centered$alpha > 5) 
+  expect_equal(res_tidy$donor[1], "(Intercept)")
 })

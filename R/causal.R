@@ -2,42 +2,46 @@
 #' Fit a Distributional Synthetic Control
 #' 
 #' @param data A data frame or tibble.
-#' @param value Unquoted column name containing the distribution values, 
-#'   ie. the target variable to be replicated by the synthetic control.
+#' @param response Unquoted column name containing the distribution response values, 
+#'   as in the target variable to be replicated by the synthetic control.
 #' @param unit_id Unquoted column name containing the unit identifiers.
-#' @param time Unquoted column name containing the time series.
 #' @param treated_unit The specific identifier in `unit_id` represeting the treated unit.
-#' @param bucket Optional string (e.g., "1 hour", "1 day") to aggregate time using lubridate, 
-#'   or an unquoted column name containing a custom string or factor grouping variable (e.g., period_name).
+#' @param bucket Optional string (e.g., "1 hour", "1 day") to aggregate time, 
+#'   or an unquoted column name containing a string or factor grouping variable (e.g., period_name).
+#' @param time Unquoted column name containing the time series.
+#' @param center Logical. If TRUE, centers distributions to extract a scalar location shift (alpha).
 #' @param n_quantiles Integer. Number of quantiles sampled for the Wasserstein grid
 #' @param lambda Numeric. Ridge regularization penalty
 #' @param max_iter Integer. Maximum iterations for gradient descent.
 #' @param tol Numeric. Convergence tolerance.
-#' @return An object of class `z_dsc`
+#' @return A model object of class `z_dsc`
 #' @export
-z_dsc <- function(data, 
+z_dsc <- function(data,
+                  response,
                   unit_id, 
-                  time, 
-                  value, 
                   treated_unit, 
-                  bucket = NULL,
+                  bucket,
+                  time = NULL,
+                  center = FALSE,
                   n_quantiles = 100L, 
                   lambda = 0.1, 
                   max_iter = 10000L, 
                   tol = 1e-8) {
   
   unit_var <- rlang::enquo(unit_id)
+  resp_var <- rlang::enquo(response)
+  bucket_var <- rlang::enquo(bucket) 
   time_var <- rlang::enquo(time)
-  value_var <- rlang::enquo(value)
-  bucket_var <- rlang::enquo(bucket) # Capture the bucket argument safely
 
   df <- dplyr::select(data, 
                       .unit = !!unit_var, 
-                      .time = !!time_var, 
-                      .value = !!value_var)
+                      .response = !!resp_var)
   
   # --- 3. Hybrid Bucketing Logic ---
-  if (!rlang::quo_is_null(bucket_var)) {
+  if (!rlang::quo_is_null(time_var)) {
+    df$.time <- dplyr::pull(data, !!time_var)
+  }
+if (!rlang::quo_is_null(bucket_var)) {
     bucket_expr <- rlang::quo_get_expr(bucket_var)
     
     if (is.character(bucket_expr)) {
@@ -48,7 +52,8 @@ z_dsc <- function(data,
       df$.bucket <- lubridate::floor_date(df$.time, unit = bucket_expr)
     } else {
       # Path B: User provided an unquoted column name (e.g., period_name)
-      df$.bucket <- dplyr::eval_tidy(bucket_var, data = data)
+      # FIXED: Changed from dplyr::eval_tidy to rlang::eval_tidy
+      df$.bucket <- rlang::eval_tidy(bucket_var, data = data) 
     }
   } else {
     # Default: Use the raw time column
@@ -58,8 +63,8 @@ z_dsc <- function(data,
   df$.bucket <- as.factor(df$.bucket)
   df$.unit <- as.factor(df$.unit)
   
-  if (any(is.na(df$.value))) {
-    rlang::abort("The value column contains NAs. Please impute or remove missing values.")
+  if (any(is.na(df$.response))) {
+    rlang::abort("The response column contains NAs. Please impute or remove missing values.")
   }
   
   if (!treated_unit %in% levels(df$.unit)) {
@@ -81,19 +86,31 @@ z_dsc <- function(data,
     cli::cli_warn("The smallest bucket has only {min_n} observations. Low sample sizes increase quantile volatility.")
   }
 
+  unit_means <- df |>
+    dplyr::group_by(.unit) |>
+    dplyr::summarise(mu = mean(.response, na.rm = TRUE)) |>
+    tibble::deframe()
+
+  if (center) {
+    df <- df |>
+      dplyr::group_by(.unit) |>
+      dplyr::mutate(.response = .response - mean(.response, na.rm = TRUE)) |>
+      dplyr::ungroup()
+  }
+
   df_treated <- dplyr::filter(df, .unit == treated_unit)
   df_donors <- dplyr::filter(df, .unit != treated_unit)
   
   treated_list <- df_treated |> 
     split(f = df_treated$.bucket, drop = TRUE) |> 
-    purrr::map(~ .x$.value)
+    purrr::map(\(x) x$.response)
   
   donor_list <- df_donors |> 
     split(f = df_donors$.bucket, drop = TRUE) |> 
     purrr::map(function(bucket_df) {
       bucket_df |> 
         split(f = bucket_df$.unit, drop = TRUE) |> 
-        purrr::map(~ .x$.value)
+        purrr::map(\(x) x$.response)
     })
   
   n_quantiles <- as.integer(n_quantiles)
@@ -109,9 +126,19 @@ z_dsc <- function(data,
   # the inner donor lists are strictly guaranteed to match the order of `levels(droplevels(df_donors$.unit))`.
   donor_names <- levels(droplevels(df_donors$.unit))
   names(results$weights) <- donor_names 
+
+  if (center) {
+    mu_target <- unit_means[[treated_unit]]
+    mu_donors <- unit_means[donor_names]
+    # alpha is the difference between the target's actual mean and the synthetic mean\
+    alpha <- mu_target - sum(results$weights * mu_donors)
+  } else {
+    alpha <- 0
+  }
   
   out <- list(
     weights = results$weights,
+    alpha = alpha,
     diagnostics = list(
       loss = results$loss,
       loss_penalized = results$loss_penalized,
@@ -130,7 +157,12 @@ z_dsc <- function(data,
       treated_unit = treated_unit,
       donor_units = donor_names,
       n_buckets = nlevels(df$.bucket),
-      lambda = lambda
+      center = center,
+      n_quantiles = n_quantiles,
+      probs = results$probs,
+      lambda = lambda,
+      max_iter = max_iter,
+      tol = tol
     )
   )
   
@@ -155,11 +187,18 @@ print.z_dsc <- function(x, ...) {
     "*" = "Treated Unit: {.val {x$params$treated_unit}}",
     "*" = "Buckets: {.val {x$params$n_buckets}}",
     "*" = "Donor Pool: {.val {length(x$params$donor_units)}} total units",
-    "*" = "Ridge Penalty (lambda): {.val {x$params$lambda}}"
+    "*" = "Ridge Penalty (lambda): {.val {x$params$lambda}}",
+    "*" = "Centered (alpha shift): {.val {x$params$center}}"
   ))
   
   # 4. Top Weights Summary
   cli::cli_h2("Top Contributing Donors")
+
+  # If centered, printing shift before the weights
+  if (x$params$center) {
+    cli::cli_alert_info("Offset Constant (alpha): {.val {sprintf('%.3f', x$alpha)}}")
+    cat("\n")
+  }
   
   # Sort weights descending
   w_sorted <- sort(x$weights, decreasing = TRUE)
@@ -224,9 +263,19 @@ summary.z_dsc <- function(object, ...) {
 
 #' @export
 tidy.z_dsc <- function(x, ...) {
-  tibble::tibble(
+  df_tidy <- tibble::tibble(
     donor = names(x$weights),
     weight = unname(x$weights)
   ) |> 
     dplyr::arrange(dplyr::desc(weight))
+
+  # Injecting the alpha intercept at the top of the tidy dataframe
+  if (x$params$center) {
+    df_tidy <- dplyr::bind_rows(
+      tibble::tibble(donor = "(Intercept)", weight = x$alpha),
+      df_tidy
+    )
+  }
+  
+  df_tidy
 }

@@ -31,6 +31,7 @@ This is an in-development project intended to be a structured and focused but ex
     - [Tweedie Distribution](#tweedie-distribution)
   - [Part 3 — Linear Models](#part-3)
   - [Part 4 — Causal Inference](#part-4)
+    - [Distributional Synthetic Controls](#dsc)
 - [Planned Work](#planned-work)
   - [Parts 5+ — Generalized Linear Models & Spatial Statistics](#part-5)
 - [Testing](#testing)
@@ -316,33 +317,39 @@ This module shifts the package's focus from foundational statistics and pedagogi
 |----------|-------------|-----------|
 | `z_dsc(data, ...)` | Distributional Synthetic Control | 2-Wasserstein distance minimization via projected gradient descent |
 
-#### Distributional Synthetic Controls (`z_dsc`)
+#### <a id="dsc"></a>Distributional Synthetic Controls (`z_dsc`)
 
-First a distributional synthetic control. Instead of matching a treated unit's *mean* outcome to a weighted combination of donors units as in classical SCM, `z_dsc()` matches the treated units *distribution*, in each pre-treatment time bucket, to a weighted Wasserstein barycenter of donor distributions. It extends the aggregate distributional SCM of Gunsilius (2023) with L2-regularized donor weights.
+The first causal inference method implemented in this package is a distributional synthetic control. Whereas standard SCM matches a treated unit's *mean* outcome to a weighted combination of donors units, `z_dsc()` matches the treated units *distribution*, in each pre-treatment time bucket, to a weighted Wasserstein barycenter of donor distributions. It extends the aggregate distributional SCM of Gunsilius (2023) with L2-regularized donor weights.
 
 The objective function:
 
 $$
-\mathbf{w}^* = \underset{\mathbf{w} \in \Delta^{J}}{\arg\min} \ \frac{1}{Q T_0} \sum_{t=1}^{T_0} \left\| \mathbf{a}^{(t)} - D^{(t)}\mathbf{w} \right\|_2^2 + \lambda \| \mathbf{w} \|_2^2
+(\mathbf{w}^{\ast}, \alpha^{\ast}) \enspace = \enspace \underset{\mathbf{w} \in \Delta^{J}, \ \alpha \in \mathbb{R}}{\arg\min} \ \frac{1}{Q T_0} \sum_{t=1}^{T_0} \left\lVert \thinspace \mathbf{a}^{(t)} - (\alpha \mathbf{1} + D^{(t)}\mathbf{w}) \thinspace \right\rVert_{\thinspace 2}^{\thinspace 2} \enspace + \enspace \lambda \lVert \mathbf{w} \rVert_2^2
 $$
+
+<!-- 
+Placeholder for the objective function latex code to be used in places other than GitHub
+$$
+(\mathbf{w}^*, \alpha^*) \; = \; \underset{\mathbf{w} \in \Delta^{J},\; \alpha \in \mathbb{R}}{\arg\min} \; \frac{1}{Q T_0} \sum_{t=1}^{T_0} \left\| \mathbf{a}^{(t)} - (\alpha \mathbf{1} + D^{(t)}\mathbf{w}) \right\|_2^2 \; + \; \lambda \| \mathbf{w} \|_2^2
+$$ -->
 
 where:
 
--   $\mathbf{a}^{(t)} \in \mathbb{R}^{Q}$ — the treated unit's empirical quantile function in pre-treatment bucket $t$ evaluated on a grid of $Q$ quantile levels
+-   $\mathbf{a}^{(t)} \in \mathbb{R}^{Q}$ — the treated unit's empirical quantile function in pre-treatment bucket $t$ evaluated on a grid of $Q$ probability levels
 -   $D^{(t)} \in \mathbb{R}^{Q \times J}$ — $J$ donors' empirical quantile functions in bucket $t$, evaluated on a shared $Q$-point probability grid
 -   $\mathbf{w} = (w_1, \dots, w_J)$ — the donor weight vector, constrained to the probability simplex $\Delta_{J} = \{\mathbf{w} : w_{j} \geq 0,\ \sum_{j} w_{j} = 1\}$
 -   $T_{0}$ is the number of pre-treatment buckets in the time series
 -   $\lambda \geq 0$ is the L2 (ridge) penalty parameter.
+-   $\alpha \in \mathbb{R}$ — a scalar intercept shifting the Wasserstein barycenter
+-   $\mathbf{1} \in \mathbb{R}^{Q}$ — a vector of ones
 
 The squared-quantile term is the discretized squared 2-Wasserstein distance between the treated unit's quantile function and the weighted Wasserstein barycenter of the donor units.
 
-**How it works**
-
 Each bucket's Gram matrix $D^{(t)\top} D{(t)}$ and cross term $D^{(t)\top} \mathbf{a}^{(t)}$ is accumulated to compress the full panel into a single $J \times J$ system and $J$-length vector before the optimization loop. The constrained problem is then solved by projected gradient descent, an ordinary gradient step followed by Euclidean projection back onto the simplex, repeated until convergence. The step size and a set of donor-pool diagnostics (effective rank, condition numbers, singular value spectra, with and without the ridge penalty) are derived from the Gram matrix's eigendecomposition.
 
-**How it differs from DiSCo**
+**Differences from DiSCo**
 
-First, `z_dsc()` minimizes one *pooled* objective across all temporal buckets for a single shared weight vector, whereas `DiSCo` fits weights per period and averages them after. Second, the L2 penalty was added to stabilize weights between highly collinear donors instead of their split being driven by noise.
+First, `z_dsc()` minimizes one *pooled* objective across all temporal buckets for a single shared weight vector, whereas `DiSCo` fits weights per period and averages them after. Second, the L2 penalty was added to stabilize weights between highly collinear donors instead of their split being driven by noise. Third, the parameter $\alpha$ shifts the barycenter toward the treated distribution to focus the donor pool weights on matching the shape separate from the means.
 
 The optimizer's correctness is cross-validated in the test suite against the quadratic-programming solver `quadprog::solve.QP()`, confirming the projected-gradient solution matches with QP solution within numerical tolerance.
 
@@ -416,15 +423,20 @@ The Tweedie density series implementation matches the `tweedie` package down to 
 
 ## References
 
+- Abadie, A., Diamond, A., & Hainmueller, J. (2010). Synthetic Control Methods for Comparative Case Studies: Estimating the Effect of California’s Tobacco Control Program. Journal of the American Statistical Association, 105(490), 493–505. https://doi.org/10.1198/jasa.2009.ap08746
+- Doudchenko, N., & Imbens, G. (2016). Balancing, Regression, Difference-In-Differences and Synthetic Control Methods: A Synthesis (No. W22791; p. w22791). National Bureau of Economic Research. https://doi.org/10.3386/w22791
+- Duchi, J., Shalev-Shwartz, S., Singer, Y., & Chandra, T. (2008). Efficient Projections onto the ℓ1-Ball for Learning in High Dimensions. Proceedings of the 25th International Conference on Machine Learning (ICML), 272–279. https://doi.org/10.1145/1390156.13901
 - Dunn, P. K., & Smyth, G. K. (2005). Series evaluation of Tweedie exponential dispersion model densities. Statistics and Computing, 15(4), 267–280. https://doi.org/10.1007/s11222-005-4070-y
+- Ferman, B., & Pinto, C. (2021). Synthetic controls with imperfect pretreatment fit. Quantitative Economics, 12(4), 1197–1221. https://doi.org/10.3982/QE1596
 - Gautschi, W. (1972). Error Function and Fresnel Integrals. In M. Abramowitz & I. A. Stegun (Eds.), Handbook of Mathematical Functions with Formulas, Graphs, and Mathematical Tables (Tenth Printing, with corrections, Vol. 1–1, pp. 295–330). U.S. Government Printing Office. (Original work published 1964, U.S. Government Printing Office)
 - Godfrey, P. (2001). A note on the computation of the convergent Lanczos complex Gamma approximation [Unpublished manuscript].
+- Gunsilius, F. F. (2023). Distributional Synthetic Controls. Econometrica, 91(3), 1105–1117. https://doi.org/10.3982/ECTA18260
 - Jørgensen, B. (1987). Exponential Dispersion Models. Journal of the Royal Statistical Society: Series B (Methodological, 49(2), 127–162. https://doi.org/10.1111/j.2517-6161.1987.tb01685.x
 - Lanczos, C. (1964). A Precision Approximation of the Gamma Function. Journal of the Society for Industrial and Applied Mathematics: Series B, Numerical Analysis, 1, 86–96.
 - Maddock, J. & Boost.Math Authors. (2025). Boost.Math C++ Library (Version 1.90.0) [C++]. https://www.boost.org/doc/libs/latest/libs/math/doc/html/index.html
 - Press, W. H., Teukolsky, S. A., Vetterling, W. T., & Flannery, B. P. (2007). Numerical Recipes: The Art of Scientific Computing (3rd ed.). Cambridge University Press.
 - Pugh, G. R. (2004). An analysis of the Lanczos Gamma Approximation [Ph.D.]. University of British Columbia.
-- Smyth, G., Chen, L., Hu, Y., Dunn, P., Phipson, B., & Chen, Y. (2025). statmod: Statistical Modeling (Version 1.5.1) [Computer software]. https://cran.r-project.org/web/packages/statmod/index.html
+- Smyth, G., Chen, L., Hu, Y., Dunn, P., Phipson, B., & Chen, Y. (2025). statmod: Statistical Modeling (Version 1.5.1) [R]. https://cran.r-project.org/web/packages/statmod/index.html
 - The Rust Project Developers. (2026). `libm`: Libm in pure Rust (Version 0.2.16) [Rust]. https://crates.io/crates/libm
 
 ## Licence
