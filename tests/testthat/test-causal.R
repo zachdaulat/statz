@@ -171,6 +171,7 @@ test_that("z_dsc() wrapper correctly routes valid data and returns S3 object", {
   expect_equal(length(res$weights), 2) 
   expect_equal(res$params$treated_unit, "King")
   expect_equal(res$params$n_buckets, 2)
+  expect_equal(res$params$scale_method, "none") # Default check
 })
 
 test_that("z_dsc() wrapper aggressively guards against degenerate data", {
@@ -211,6 +212,7 @@ test_that("S3 methods execute correctly", {
   expect_error(print(res), NA)
   expect_error(summary(res), NA)
   
+  # Standard (none) scaling format
   res_tidy <- broom::tidy(res)
   expect_s3_class(res_tidy, "tbl_df")
   expect_equal(nrow(res_tidy), 2)
@@ -233,7 +235,7 @@ test_that("z_dsc() safely processes single-observation buckets", {
   expect_true(res$diagnostics$converged)
 })
 
-test_that("z_dsc() center argument correctly extracts alpha shift", {
+test_that("z_dsc() additive scale_method correctly extracts alpha shift", {
   valid_df <- tibble::tibble(
     street = rep(c("King", "Queen", "Dundas"), times = 10),
     period = rep(1:2, each = 15),
@@ -242,10 +244,53 @@ test_that("z_dsc() center argument correctly extracts alpha shift", {
                    runif(30, 5, 10))
   )
   
-  res_centered <- z_dsc(valid_df, delay, street, "King", period, center = TRUE)
-  res_tidy <- broom::tidy(res_centered)
+  res_additive <- z_dsc(valid_df, delay, street, "King", period, scale_method = "additive")
+  res_tidy <- broom::tidy(res_additive)
   
-  expect_true(res_centered$params$center)
-  expect_true(res_centered$alpha > 5) 
+  expect_equal(res_additive$params$scale_method, "additive")
+  expect_true(res_additive$alpha > 5) 
   expect_equal(res_tidy$donor[1], "(Intercept)")
+})
+
+test_that("z_dsc() multiplicative scale_method computes scale_factors and checks for <= 0", {
+  valid_df <- tibble::tibble(
+    street = rep(c("King", "Queen", "Dundas"), times = 10),
+    period = rep(1:2, each = 15),
+    delay = ifelse(street == "King", 
+                   runif(30, 15, 20), 
+                   runif(30, 5, 10))
+  )
+  
+  res_mult <- z_dsc(valid_df, delay, street, "King", period, scale_method = "multiplicative")
+  res_tidy <- broom::tidy(res_mult)
+  
+  expect_equal(res_mult$params$scale_method, "multiplicative")
+  expect_true(all(res_mult$scale_factors > 0))
+  expect_true("scale_factor" %in% names(res_tidy))
+  
+  # Ensure the data constraints reject negative or zero centered units
+  df_neg <- valid_df
+  df_neg$delay[df_neg$street == "Queen"] <- -10 # forces unit_loc < 0
+  
+  expect_error(
+    z_dsc(df_neg, delay, street, "King", period, scale_method = "multiplicative"),
+    regexp = "strictly positive unit locations"
+  )
+})
+
+test_that("z_dsc() location argument correctly routes mean vs median", {
+  df_outlier <- tibble::tibble(
+    street = rep(c("King", "Queen", "Dundas"), times = 10),
+    period = rep(1:2, each = 15),
+    delay = runif(30, 1, 10)
+  )
+  
+  # Explicitly inject a massive outlier into a King St observation
+  df_outlier$delay[1] <- 1000 
+  
+  res_mean <- z_dsc(df_outlier, delay, street, "King", period, scale_method = "additive", location = "mean")
+  res_median <- z_dsc(df_outlier, delay, street, "King", period, scale_method = "additive", location = "median")
+  
+  # The mean location of King St should be significantly pulled by the 1000 outlier
+  expect_true(res_mean$unit_loc["King"] > res_median$unit_loc["King"])
 })

@@ -9,24 +9,23 @@
 #' @param bucket Optional string (e.g., "1 hour", "1 day") to aggregate time, 
 #'   or an unquoted column name containing a string or factor grouping variable (e.g., period_name).
 #' @param time Unquoted column name containing the time series.
-#' @param center Logical. If TRUE, centers distributions to extract a scalar location shift (alpha).
+#' @param scale_method Choose centering method; one of "non", "additive", "multiplicative"
+#' @param location Metric for center. Either "median" or "mean"
 #' @param n_quantiles Integer. Number of quantiles sampled for the Wasserstein grid
 #' @param lambda Numeric. Ridge regularization penalty
 #' @param max_iter Integer. Maximum iterations for gradient descent.
 #' @param tol Numeric. Convergence tolerance.
 #' @return A model object of class `z_dsc`
 #' @export
-z_dsc <- function(data,
-                  response,
-                  unit_id, 
-                  treated_unit, 
-                  bucket,
+z_dsc <- function(data, response, unit_id, treated_unit, bucket,
                   time = NULL,
-                  center = FALSE,
-                  n_quantiles = 100L, 
-                  lambda = 0.1, 
-                  max_iter = 10000L, 
-                  tol = 1e-8) {
+                  scale_method = c("none", "additive", "multiplicative"),
+                  location = c("median", "mean"),
+                  n_quantiles = 100L, lambda = 0.1,
+                  max_iter = 10000L, tol = 1e-8) {
+
+  scale_method <- rlang::arg_match(scale_method)
+  location <- rlang::arg_match(location)
   
   unit_var <- rlang::enquo(unit_id)
   resp_var <- rlang::enquo(response)
@@ -41,7 +40,7 @@ z_dsc <- function(data,
   if (!rlang::quo_is_null(time_var)) {
     df$.time <- dplyr::pull(data, !!time_var)
   }
-if (!rlang::quo_is_null(bucket_var)) {
+  if (!rlang::quo_is_null(bucket_var)) {
     bucket_expr <- rlang::quo_get_expr(bucket_var)
     
     if (is.character(bucket_expr)) {
@@ -86,17 +85,21 @@ if (!rlang::quo_is_null(bucket_var)) {
     cli::cli_warn("The smallest bucket has only {min_n} observations. Low sample sizes increase quantile volatility.")
   }
 
-  unit_means <- df |>
-    dplyr::group_by(.unit) |>
-    dplyr::summarise(mu = mean(.response, na.rm = TRUE)) |>
+  loc_fn <- switch(location, mean = mean, median = stats::median)
+
+  unit_loc <- df |>
+    dplyr::summarise(loc = loc_fn(.response, na.rm = TRUE), .by = .unit) |>
     tibble::deframe()
 
-  if (center) {
-    df <- df |>
-      dplyr::group_by(.unit) |>
-      dplyr::mutate(.response = .response - mean(.response, na.rm = TRUE)) |>
-      dplyr::ungroup()
+  if (scale_method == "multiplicative" && any(unit_loc <= 0)) {
+    rlang::abort("Multiplicative scaling requires strictly positive unit locations.")
   }
+
+  df <- switch(scale_method,
+    none = df,
+    additive = dplyr::mutate(df, .response = .response - unit_loc[as.character(.unit)]),
+    multiplicative = dplyr::mutate(df, .response = .response / unit_loc[as.character(.unit)])
+  )
 
   df_treated <- dplyr::filter(df, .unit == treated_unit)
   df_donors <- dplyr::filter(df, .unit != treated_unit)
@@ -125,20 +128,27 @@ if (!rlang::quo_is_null(bucket_var)) {
   # Because `split(..., drop = TRUE)` operates on the same factor levels across all buckets, 
   # the inner donor lists are strictly guaranteed to match the order of `levels(droplevels(df_donors$.unit))`.
   donor_names <- levels(droplevels(df_donors$.unit))
-  names(results$weights) <- donor_names 
+  names(results$weights) <- donor_names
+  loc_target <- unit_loc[[treated_unit]]
+  loc_donors <- unit_loc[donor_names]
 
-  if (center) {
-    mu_target <- unit_means[[treated_unit]]
-    mu_donors <- unit_means[donor_names]
-    # alpha is the difference between the target's actual mean and the synthetic mean\
-    alpha <- mu_target - sum(results$weights * mu_donors)
+  alpha <- if (scale_method == "additive") {
+    loc_target - sum(results$weights * loc_donors)
+  } else 0
+
+  # Per-donor multiplicative factors: each donor scaled to the treated level.
+  # Estimated on pre-treatment data only and held fixed thereafter.
+  scale_factors <- if (scale_method == "multiplicative") {
+    loc_target / loc_donors
   } else {
-    alpha <- 0
+    stats::setNames(rep(1, length(donor_names)), donor_names)
   }
   
   out <- list(
     weights = results$weights,
     alpha = alpha,
+    scale_factors = scale_factors,
+    unit_loc = unit_loc,
     diagnostics = list(
       loss = results$loss,
       loss_penalized = results$loss_penalized,
@@ -157,7 +167,8 @@ if (!rlang::quo_is_null(bucket_var)) {
       treated_unit = treated_unit,
       donor_units = donor_names,
       n_buckets = nlevels(df$.bucket),
-      center = center,
+      scale_method = scale_method,
+      location = location,
       n_quantiles = n_quantiles,
       probs = results$probs,
       lambda = lambda,
@@ -172,47 +183,39 @@ if (!rlang::quo_is_null(bucket_var)) {
 #' Print method for Distributional Synthetic Controls
 #' @export
 print.z_dsc <- function(x, ...) {
-  # 1. Header
   cli::cli_h1("Distributional Synthetic Control")
   
-  # 2. Convergence Status
   if (x$diagnostics$converged) {
     cli::cli_alert_success("Optimisation converged in {x$diagnostics$iterations} iterations.")
   } else {
     cli::cli_alert_danger("Optimisation failed to converge (Max iter: {x$diagnostics$iterations}).")
   }
   
-  # 3. Model Metadata
   cli::cli_bullets(c(
     "*" = "Treated Unit: {.val {x$params$treated_unit}}",
     "*" = "Buckets: {.val {x$params$n_buckets}}",
     "*" = "Donor Pool: {.val {length(x$params$donor_units)}} total units",
     "*" = "Ridge Penalty (lambda): {.val {x$params$lambda}}",
-    "*" = "Centered (alpha shift): {.val {x$params$center}}"
+    "*" = "Scaling Method: {.val {x$params$scale_method}}",
+    "*" = "Location Measure: {.val {x$params$location}}"
   ))
   
-  # 4. Top Weights Summary
   cli::cli_h2("Top Contributing Donors")
 
-  # If centered, printing shift before the weights
-  if (x$params$center) {
+  if (x$params$scale_method == "additive") {
     cli::cli_alert_info("Offset Constant (alpha): {.val {sprintf('%.3f', x$alpha)}}")
     cat("\n")
   }
   
-  # Sort weights descending
   w_sorted <- sort(x$weights, decreasing = TRUE)
   top_n <- min(5, length(w_sorted))
   top_weights <- w_sorted[1:top_n]
   
-  # Format as a clean named character vector for printing
   weight_strings <- sprintf("%.3f", top_weights)
   names(weight_strings) <- names(top_weights)
   
-  # Print the top weights
   cli::cli_dl(weight_strings)
   
-  # Indicate how much weight is distributed among the remaining donors
   if (length(w_sorted) > 5) {
     remaining_weight <- sum(w_sorted[(top_n + 1):length(w_sorted)])
     cli::cli_text(cli::col_grey(
@@ -236,7 +239,6 @@ summary.z_dsc <- function(object, ...) {
   
   cli::cli_h2("Donor Collinearity Diagnostics")
   
-  # Effective Rank vs Actual Donors
   j <- length(object$params$donor_units)
   rank_pct <- (object$diagnostics$effective_rank / j) * 100
   
@@ -248,7 +250,6 @@ summary.z_dsc <- function(object, ...) {
     cli::cli_alert_warning("Effective rank is strictly less than J. The raw donor pool is perfectly collinear.")
   }
   
-  # Condition Numbers
   cli::cli_bullets(c(
     "*" = "Raw Condition Number (Kappa): {.val {sprintf('%.2f', object$diagnostics$kappa)}}",
     "*" = "Regularised Kappa (L2):       {.val {sprintf('%.2f', object$diagnostics$kappa_l2)}}"
@@ -269,8 +270,12 @@ tidy.z_dsc <- function(x, ...) {
   ) |> 
     dplyr::arrange(dplyr::desc(weight))
 
-  # Injecting the alpha intercept at the top of the tidy dataframe
-  if (x$params$center) {
+  if (x$params$scale_method == "multiplicative") {
+    # Dynamically map the scale_factor to the arranged donor column
+    df_tidy <- df_tidy |> 
+      dplyr::mutate(scale_factor = unname(x$scale_factors[donor]))
+  } else if (x$params$scale_method == "additive") {
+    # Injecting the alpha intercept at the top of the tidy dataframe
     df_tidy <- dplyr::bind_rows(
       tibble::tibble(donor = "(Intercept)", weight = x$alpha),
       df_tidy

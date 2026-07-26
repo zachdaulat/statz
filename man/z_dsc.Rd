@@ -11,7 +11,8 @@ z_dsc(
   treated_unit,
   bucket,
   time = NULL,
-  center = FALSE,
+  scale_method = c("none", "additive", "multiplicative"),
+  location = c("median", "mean"),
   n_quantiles = 100L,
   lambda = 0.1,
   max_iter = 10000L,
@@ -33,7 +34,9 @@ or an unquoted column name containing a string or factor grouping variable (e.g.
 
 \item{time}{Unquoted column name containing the time series.}
 
-\item{center}{Logical. If TRUE, centers distributions to extract a scalar location shift (alpha).}
+\item{scale_method}{Choose centering method; one of "non", "additive", "multiplicative"}
+
+\item{location}{Metric for center. Either "median" or "mean"}
 
 \item{n_quantiles}{Integer. Number of quantiles sampled for the Wasserstein grid}
 
