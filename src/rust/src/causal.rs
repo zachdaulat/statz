@@ -9,19 +9,19 @@ use crate::linear_models::RMatrixExt;
 
 extendr_module! {
     mod causal;
-    fn z_dsc_rs;
+    fn dsc_rs;
 }
 
 // Future refinement when doing bootstrapping, modularize into separate functions
-// to enable crate-level testing with wrapper doing R object view conversion?
+// to enable crate-level testing with wrapper doing R object view conversion
 // Distributional synthetic controls implementation
 #[extendr]
 #[allow(non_snake_case)]
-pub fn z_dsc_rs(
+pub fn dsc_rs(
     treated: List,      // Each element: Doubles vectors of treated unit obs by bucket
     donors: List,       // Each element: List of Doubles, one per donor by bucket
     n_quantiles: i32,   // Q, number of quantiles to sample from each bucket
-    lambda: f64,        // L2 penalty
+    penalty: f64,       // L2 penalty
     max_iter: i32,      // Maximum number of iterations for gradient descent loop
     tol: f64,           // Threshold for change in weights vector norm
 ) -> extendr_api::Result<List> {
@@ -135,7 +135,7 @@ pub fn z_dsc_rs(
         .count() as i32;
 
     // 4.3 Regularization
-    let l2_penalty: f64 = 2.0 * lambda;
+    let l2_penalty: f64 = 2.0 * penalty;
 
     // Zero-allocation diagonal mutation to apply L2 penalty to Gram matrix
     let mut G_diag: ColMut<f64> = G.diagonal_mut().column_vector_mut();
@@ -197,7 +197,7 @@ pub fn z_dsc_rs(
     // Penalized objective the optimizer saw
     let obj_penalized: f64 = a_sq_scaled - cw + (0.5 * wGw);
     // Unpenalized objective (mean squared 2-Wasserstein Distance)
-    let obj_unpenalized: f64 = obj_penalized - (lambda * w.squared_norm_l2());
+    let obj_unpenalized: f64 = obj_penalized - (penalty * w.squared_norm_l2());
 
     Ok(list!(
         weights = w.iter().collect::<Doubles>(),

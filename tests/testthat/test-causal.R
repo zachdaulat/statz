@@ -33,16 +33,16 @@ test_that("Independent solver reference test matches quadprog", {
   j_donors <- 3
   n_buckets <- 2
   q_quantiles <- 100
-  lambda <- 0.1
+  penalty <- 0.1
   
   data <- generate_mock_buckets(n_buckets, j_donors, n_obs = 50)
   
   # 2. Run the Rust implementation
-  rust_res <- z_dsc_rs(
+  rust_res <- dsc_rs(
     treated = data$treated, 
     donors = data$donors, 
     n_quantiles = q_quantiles, 
-    lambda = lambda, 
+    penalty = penalty, 
     max_iter = 10000, 
     tol = 1e-8
   )
@@ -67,7 +67,7 @@ test_that("Independent solver reference test matches quadprog", {
   
   # Apply normalization and L2 Ridge penalty
   S <- 2 / (n_buckets * q_quantiles)
-  G_code <- (S * G_raw) + diag(2 * lambda, j_donors)
+  G_code <- (S * G_raw) + diag(2 * penalty, j_donors)
   c_code <- S * c_raw
   
   # 4. Solve via quadprog
@@ -96,7 +96,7 @@ test_that("Ground truth recovery and interpolation work correctly", {
     list(data_exact$treated[[b]], rnorm(50, 100, 1), rnorm(50, 200, 1))
   })
   
-  res_exact <- z_dsc_rs(data_exact$treated, data_exact$donors, 100, lambda = 0.001, 1000, 1e-8)
+  res_exact <- dsc_rs(data_exact$treated, data_exact$donors, 100, penalty = 0.001, 1000, 1e-8)
   expect_equal(res_exact$weights, c(1, 0, 0), tolerance = 1e-4)
   
   # Scenario B: Interpolation (N(5,1) treated, N(4,1) and N(6,1) donors)
@@ -107,7 +107,7 @@ test_that("Ground truth recovery and interpolation work correctly", {
     n_obs = 1000 # High N to reduce empirical sampling noise
   )
   
-  res_interp <- z_dsc_rs(data_interp$treated, data_interp$donors, 100, lambda = 0.001, 10000, 1e-8)
+  res_interp <- dsc_rs(data_interp$treated, data_interp$donors, 100, penalty = 0.001, 10000, 1e-8)
   expect_equal(res_interp$weights, c(0.5, 0.5), tolerance = 0.05)
 })
 
@@ -118,12 +118,12 @@ test_that("Regularisation forces uniform weights on collinear donors", {
   identical_donor <- rnorm(50, 4, 1)
   donors <- list(list(identical_donor, identical_donor))
   
-  # Low lambda
-  res_low <- z_dsc_rs(treated, donors, 100, lambda = 0.0001, 1000, 1e-8)
-  # High lambda
-  res_high <- z_dsc_rs(treated, donors, 100, lambda = 100, 1000, 1e-8)
+  # Low L2 penalty
+  res_low <- dsc_rs(treated, donors, 100, penalty = 0.0001, 1000, 1e-8)
+  # High L2 penalty
+  res_high <- dsc_rs(treated, donors, 100, penalty = 100, 1000, 1e-8)
   
-  # High lambda should force near-perfect uniformity (0.5, 0.5)
+  # High L2 penalty should force near-perfect uniformity (0.5, 0.5)
   expect_equal(res_high$weights, c(0.5, 0.5), tolerance = 1e-5)
   
   # The regularized condition number must drop
@@ -132,7 +132,7 @@ test_that("Regularisation forces uniform weights on collinear donors", {
 
 test_that("Simplex invariants hold", {
   data <- generate_mock_buckets()
-  res <- z_dsc_rs(data$treated, data$donors, 100, 0.1, 1000, 1e-8)
+  res <- dsc_rs(data$treated, data$donors, 100, 0.1, 1000, 1e-8)
   
   expect_equal(sum(res$weights), 1.0, tolerance = 1e-8)
   expect_true(all(res$weights >= -1e-12)) # Accounting for float imprecision
@@ -143,12 +143,12 @@ test_that("Convergence controls limit execution", {
   data <- generate_mock_buckets()
   
   # max_iter = 1 should almost guarantee non-convergence on random data
-  res <- z_dsc_rs(data$treated, data$donors, 100, 0.1, max_iter = 1, 1e-8)
+  res <- dsc_rs(data$treated, data$donors, 100, 0.1, max_iter = 1, 1e-8)
   expect_false(res$converged)
   expect_equal(res$n_iterations, 1)
 })
 
-test_that("z_dsc() wrapper correctly routes valid data and returns S3 object", {
+test_that("dsc() wrapper correctly routes valid data and returns S3 object", {
   valid_df <- tibble::tibble(
     street = rep(c("King", "Queen", "Dundas"), times = 10),
     period = rep(as.POSIXct(c("2026-07-08 08:00:00", "2026-07-08 09:00:00")), each = 15),
@@ -156,7 +156,7 @@ test_that("z_dsc() wrapper correctly routes valid data and returns S3 object", {
   )
   
   # Notice: bucket is now explicitly placed before time
-  res <- z_dsc(
+  res <- dsc(
     data = valid_df,
     response = delay,
     unit_id = street,
@@ -164,17 +164,17 @@ test_that("z_dsc() wrapper correctly routes valid data and returns S3 object", {
     bucket = "1 hour",
     time = period,
     n_quantiles = 10, 
-    lambda = 0.1
+    penalty = 0.1
   )
   
-  expect_s3_class(res, "z_dsc")
+  expect_s3_class(res, "dsc")
   expect_equal(length(res$weights), 2) 
   expect_equal(res$params$treated_unit, "King")
   expect_equal(res$params$n_buckets, 2)
-  expect_equal(res$params$scale_method, "none") # Default check
+  expect_equal(res$params$adjust_method, "none") # Default check
 })
 
-test_that("z_dsc() wrapper aggressively guards against degenerate data", {
+test_that("dsc() wrapper aggressively guards against degenerate data", {
   base_df <- tibble::tibble(
     street = rep(c("King", "Queen"), times = 2),
     time_col = c(1, 1, 2, 2),
@@ -184,18 +184,18 @@ test_that("z_dsc() wrapper aggressively guards against degenerate data", {
   df_na <- base_df
   df_na$delay[1] <- NA
   expect_error(
-    z_dsc(df_na, delay, street, "King", time_col),
+    dsc(df_na, delay, street, "King", time_col),
     regexp = "contains NAs"
   )
   
   expect_error(
-    z_dsc(base_df, delay, street, "Richmond", time_col),
+    dsc(base_df, delay, street, "Richmond", time_col),
     regexp = "not found in the unit column"
   )
   
   df_unbalanced <- base_df[-4, ] 
   expect_error(
-    z_dsc(df_unbalanced, delay, street, "King", time_col),
+    dsc(df_unbalanced, delay, street, "King", time_col),
     regexp = "Unbalanced panel"
   )
 })
@@ -207,7 +207,7 @@ test_that("S3 methods execute correctly", {
     delay = runif(30, 1, 10)
   )
   
-  res <- z_dsc(valid_df, delay, street, "King", period)
+  res <- dsc(valid_df, delay, street, "King", period)
   
   expect_error(print(res), NA)
   expect_error(summary(res), NA)
@@ -219,7 +219,7 @@ test_that("S3 methods execute correctly", {
   expect_named(res_tidy, c("donor", "weight"))
 })
 
-test_that("z_dsc() safely processes single-observation buckets", {
+test_that("dsc() safely processes single-observation buckets", {
   valid_df_single <- tibble::tibble(
     street = rep(c("King", "Queen", "Dundas"), times = 2),
     period = rep(1:2, each = 3),
@@ -227,15 +227,15 @@ test_that("z_dsc() safely processes single-observation buckets", {
   )
   
   expect_warning(
-    res <- z_dsc(valid_df_single, delay, street, "King", period),
+    res <- dsc(valid_df_single, delay, street, "King", period),
     regexp = "smallest bucket has only 1 observations"
   )
   
-  expect_s3_class(res, "z_dsc")
+  expect_s3_class(res, "dsc")
   expect_true(res$diagnostics$converged)
 })
 
-test_that("z_dsc() additive scale_method correctly extracts alpha shift", {
+test_that("dsc() translation adjust_method correctly extracts gamma shift", {
   valid_df <- tibble::tibble(
     street = rep(c("King", "Queen", "Dundas"), times = 10),
     period = rep(1:2, each = 15),
@@ -244,15 +244,15 @@ test_that("z_dsc() additive scale_method correctly extracts alpha shift", {
                    runif(30, 5, 10))
   )
   
-  res_additive <- z_dsc(valid_df, delay, street, "King", period, scale_method = "additive")
-  res_tidy <- broom::tidy(res_additive)
+  res_shift <- dsc(valid_df, delay, street, "King", period, adjust_method = "shift")
+  res_tidy <- broom::tidy(res_shift)
   
-  expect_equal(res_additive$params$scale_method, "additive")
-  expect_true(res_additive$alpha > 5) 
+  expect_equal(res_shift$params$adjust_method, "shift")
+  expect_true(res_shift$gamma > 5) 
   expect_equal(res_tidy$donor[1], "(Intercept)")
 })
 
-test_that("z_dsc() multiplicative scale_method computes scale_factors and checks for <= 0", {
+test_that("dsc() scaling adjust_method computes adjust_factors and checks for <= 0", {
   valid_df <- tibble::tibble(
     street = rep(c("King", "Queen", "Dundas"), times = 10),
     period = rep(1:2, each = 15),
@@ -261,24 +261,24 @@ test_that("z_dsc() multiplicative scale_method computes scale_factors and checks
                    runif(30, 5, 10))
   )
   
-  res_mult <- z_dsc(valid_df, delay, street, "King", period, scale_method = "multiplicative")
+  res_mult <- dsc(valid_df, delay, street, "King", period, adjust_method = "scale")
   res_tidy <- broom::tidy(res_mult)
   
-  expect_equal(res_mult$params$scale_method, "multiplicative")
-  expect_true(all(res_mult$scale_factors > 0))
-  expect_true("scale_factor" %in% names(res_tidy))
+  expect_equal(res_mult$params$adjust_method, "scale")
+  expect_true(all(res_mult$rho > 0))
+  expect_true("rho" %in% names(res_tidy))
   
   # Ensure the data constraints reject negative or zero centered units
   df_neg <- valid_df
   df_neg$delay[df_neg$street == "Queen"] <- -10 # forces unit_loc < 0
   
   expect_error(
-    z_dsc(df_neg, delay, street, "King", period, scale_method = "multiplicative"),
+    dsc(df_neg, delay, street, "King", period, adjust_method = "scale"),
     regexp = "strictly positive unit locations"
   )
 })
 
-test_that("z_dsc() location argument correctly routes mean vs median", {
+test_that("dsc() location_stat argument correctly routes mean vs median", {
   df_outlier <- tibble::tibble(
     street = rep(c("King", "Queen", "Dundas"), times = 10),
     period = rep(1:2, each = 15),
@@ -288,8 +288,8 @@ test_that("z_dsc() location argument correctly routes mean vs median", {
   # Explicitly inject a massive outlier into a King St observation
   df_outlier$delay[1] <- 1000 
   
-  res_mean <- z_dsc(df_outlier, delay, street, "King", period, scale_method = "additive", location = "mean")
-  res_median <- z_dsc(df_outlier, delay, street, "King", period, scale_method = "additive", location = "median")
+  res_mean <- dsc(df_outlier, delay, street, "King", period, adjust_method = "shift", location_stat = "mean")
+  res_median <- dsc(df_outlier, delay, street, "King", period, adjust_method = "shift", location_stat = "median")
   
   # The mean location of King St should be significantly pulled by the 1000 outlier
   expect_true(res_mean$unit_loc["King"] > res_median$unit_loc["King"])

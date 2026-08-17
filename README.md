@@ -311,41 +311,70 @@ OLS engines completed:
 
 ### <a id="part-4"></a>Part 4 — Causal Inference
 
-This module shifts the package's focus from foundational statistics and pedagogically-focused replications, toward applied econometric methods for causal inference.
+This module shifts the package's focus from foundational statistics and pedagogically-focused replications toward applied econometric methods for causal inference.
 
 | Function | Description | Method |
 |----------|-------------|-----------|
-| `z_dsc(data, ...)` | Distributional Synthetic Control | 2-Wasserstein distance minimization via projected gradient descent |
+| `dsc(data, ...)` | Distributional Synthetic Control | 2-Wasserstein distance minimization via projected gradient descent |
 
-#### <a id="dsc"></a>Distributional Synthetic Controls (`z_dsc`)
+#### <a id="dsc"></a>Distributional Synthetic Controls (`dsc`)
 
-The first causal inference method implemented in this package is a distributional synthetic control. Whereas standard SCM matches a treated unit's *mean* outcome to a weighted combination of donors units, `z_dsc()` matches the treated units *distribution*, in each pre-treatment time bucket, to a weighted Wasserstein barycenter of donor distributions. It extends the aggregate distributional SCM of Gunsilius (2023) with L2-regularized donor weights.
+The first causal inference method implemented in this package is a distributional synthetic control. Whereas standard SCM matches a treated unit's *mean* outcome to a weighted combination of donors units, `dsc()` matches the treated units *distribution*, in each pre-treatment time bucket, to a weighted Wasserstein barycenter of donor distributions. It extends the aggregate distributional SCM of Gunsilius (2023) with L2-regularized donor weights and a location adjustment for shape-focused matching.
 
 The objective function:
 
 $$
-(\mathbf{w}^{\ast}, \alpha^{\ast}) \enspace = \enspace \underset{\mathbf{w} \in \Delta^{J}, \ \alpha \in \mathbb{R}}{\arg\min} \ \frac{1}{Q T_0} \sum_{t=1}^{T_0} \left\lVert \thinspace \mathbf{a}^{(t)} - (\alpha \mathbf{1} + D^{(t)}\mathbf{w}) \thinspace \right\rVert_{\thinspace 2}^{\thinspace 2} \enspace + \enspace \lambda \lVert \mathbf{w} \rVert_2^2
+\mathbf{w}^{\ast} \enspace = \enspace \underset{\mathbf{w} \in \Delta^{J-1}}{\arg\min} \ \frac{1}{Q T_0} \sum_{t=1}^{T_0} \left\lVert \thinspace \mathbf{a}^{(t)} - Q_S^{(t)}(\mathbf{w}) \thinspace \right\rVert_{\thinspace 2}^{\thinspace 2} \enspace + \enspace \lambda \lVert \mathbf{w} \rVert_2^2
 $$
 
-<!-- 
-Placeholder for the objective function latex code to be used in places other than GitHub
 $$
-(\mathbf{w}^*, \alpha^*) \; = \; \underset{\mathbf{w} \in \Delta^{J},\; \alpha \in \mathbb{R}}{\arg\min} \; \frac{1}{Q T_0} \sum_{t=1}^{T_0} \left\| \mathbf{a}^{(t)} - (\alpha \mathbf{1} + D^{(t)}\mathbf{w}) \right\|_2^2 \; + \; \lambda \| \mathbf{w} \|_2^2
-$$ -->
+Q_{S}^{(t)}(\mathbf{w}) \enspace = \enspace
+\begin{cases}
+D^{(t)}\mathbf{w} & \text{none} \\
+D^{(t)}\mathbf{w} + \gamma\mathbf{1}, \quad \gamma = \ell_{a} - \boldsymbol{\ell}_{D}^{\top}\mathbf{w} & \text{translation (\``shift'')} \\
+D^{(t)}(\mathbf{w} \odot \boldsymbol{\rho}), \quad \rho_{j} = \ell_{a} / \ell_{D,j} & \text{scaling (\``scale'')}
+\end{cases}
+$$
 
 where:
 
 -   $\mathbf{a}^{(t)} \in \mathbb{R}^{Q}$ — the treated unit's empirical quantile function in pre-treatment bucket $t$ evaluated on a grid of $Q$ probability levels
--   $D^{(t)} \in \mathbb{R}^{Q \times J}$ — $J$ donors' empirical quantile functions in bucket $t$, evaluated on a shared $Q$-point probability grid
--   $\mathbf{w} = (w_1, \dots, w_J)$ — the donor weight vector, constrained to the probability simplex $\Delta_{J} = \{\mathbf{w} : w_{j} \geq 0,\ \sum_{j} w_{j} = 1\}$
--   $T_{0}$ is the number of pre-treatment buckets in the time series
--   $\lambda \geq 0$ is the L2 (ridge) penalty parameter.
--   $\alpha \in \mathbb{R}$ — a scalar intercept shifting the Wasserstein barycenter
--   $\mathbf{1} \in \mathbb{R}^{Q}$ — a vector of ones
+-   $D^{(t)} \in \mathbb{R}^{Q \times J}$ — $J$ donors' empirical quantile functions in bucket $t$, on the same grid
+-   $Q_S^{(t)}(\mathbf{w}) \in \mathbb{R}^{Q}$ — the synthetic control's quantile function in bucket $t$
+-   $\mathbf{w} = (w_1, \dots, w_J)^{\top}$ — the donor weight vector, constrained to the probability simplex $\Delta^{J-1} = \left\lbrace \mathbf{w} \in \mathbb{R}^J : w_{j} \geq 0,\ \sum_{j=1}^J w_{j} = 1 \right\rbrace$
+-   $T_{0}$ — the count of pre-treatment buckets
+-   $Q$ — the count of probability levels in the grid
+-   $\lambda \geq 0$ — the L2 (ridge) penalty parameter
+-   $\ell_{a} \in \mathbb{R}$ — the pre-treatment empirical location (mean or median) of the treated unit
+-   $\boldsymbol{\ell}_{D} \in \mathbb{R}^{J}$ — the pre-treatment empirical locations vector (means or medians) of each donor
+-   $\gamma \in \mathbb{R}$ — the location shift value translating the synthetic control to the treated location
+-   $\boldsymbol{\rho} \in \mathbb{R}^{J}$ — the vector of per-donor scale factors aligning donor locations to the treated unit
+-   $\odot$ — the Hadamard (element-wise) product
+
+<!-- 
+Placeholder for the objective function latex code to be used in places other than GitHub
+$$
+\mathbf{w}^* \; = \; \underset{\mathbf{w} \in \Delta^{J-1}}{\arg\min} \; \frac{1}{Q T_0} \sum_{t=1}^{T_0} \left\| \mathbf{a}^{(t)} - Q_S^{(t)}(\mathbf{w}) \right\|_2^2 \; + \; \lambda \Vert{} \mathbf{w} \Vert{}_2^2
+$$
+
+$$
+Q_{S}^{(t)}(\mathbf{w}) =
+\begin{cases}
+D^{(t)}\mathbf{w}
+  & \text{none} \\[6pt]
+D^{(t)}\mathbf{w} + \gamma\mathbf{1},
+  \quad \gamma = \ell_{a} - \boldsymbol{\ell}_{D}^{\top}\mathbf{w}
+  & \text{translation (``shift'')} \\[6pt]
+D^{(t)}(\mathbf{w} \odot \boldsymbol{\rho}),
+  \quad \rho_{j} = \ell_{a} / \ell_{D,j}
+  & \text{scaling (``scale'')}
+\end{cases}
+$$
+-->
 
 The squared-quantile term is the discretized squared 2-Wasserstein distance between the treated unit's quantile function and the weighted Wasserstein barycenter of the donor units.
 
-Each bucket's Gram matrix $D^{(t)\top} D{(t)}$ and cross term $D^{(t)\top} \mathbf{a}^{(t)}$ is accumulated to compress the full panel into a single $J \times J$ system and $J$-length vector before the optimization loop. The constrained problem is then solved by projected gradient descent, an ordinary gradient step followed by Euclidean projection back onto the simplex, repeated until convergence. The step size and a set of donor-pool diagnostics (effective rank, condition numbers, singular value spectra, with and without the ridge penalty) are derived from the Gram matrix's eigendecomposition.
+Because the adjustment methods are implicit or applied prior to the matrix multiplications, the optimization does not treat them as free parameters. Each bucket's Gram matrix $D^{(t)\top} D^{(t)}$ and cross term $D^{(t)\top} \mathbf{a}^{(t)}$ are accumulated to compress the full panel into a single $J \times J$ system and $J$-length vector before the optimization loop. The constrained problem is then solved by projected gradient descent, an ordinary gradient step followed by Euclidean projection back onto the simplex, repeated until convergence. The step size and a set of donor-pool diagnostics (effective rank, condition numbers, singular value spectra, with and without the ridge penalty) are derived from the Gram matrix's eigendecomposition.
 
 **Differences from DiSCo**
 

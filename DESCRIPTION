@@ -1,6 +1,6 @@
 Package: statz
 Title: Statistical Functions with Rust Engines
-Version: 0.1.2
+Version: 0.1.2.9000
 Authors@R: 
     person("Zachary", "Daulat", role = c("aut", "cre"),
            email = "zdaulat@gmail.com")

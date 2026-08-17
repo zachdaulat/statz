@@ -1,5 +1,5 @@
 
-#' Fit a Distributional Synthetic Control
+#' Fit a Distributional Synthetic Control on pre-treatment data
 #' 
 #' @param data A data frame or tibble.
 #' @param response Unquoted column name containing the distribution response values, 
@@ -9,23 +9,23 @@
 #' @param bucket Optional string (e.g., "1 hour", "1 day") to aggregate time, 
 #'   or an unquoted column name containing a string or factor grouping variable (e.g., period_name).
 #' @param time Unquoted column name containing the time series.
-#' @param scale_method Choose centering method; one of "non", "additive", "multiplicative"
-#' @param location Metric for center. Either "median" or "mean"
+#' @param adjust_method Choose location adjustment method; one of "none", "shift", "scale"
+#' @param location_stat Metric for center. Either "median" or "mean"
 #' @param n_quantiles Integer. Number of quantiles sampled for the Wasserstein grid
-#' @param lambda Numeric. Ridge regularization penalty
+#' @param penalty Numeric. L2 ridge regularization penalty parameter
 #' @param max_iter Integer. Maximum iterations for gradient descent.
 #' @param tol Numeric. Convergence tolerance.
-#' @return A model object of class `z_dsc`
+#' @return A model object of class `dsc`
 #' @export
-z_dsc <- function(data, response, unit_id, treated_unit, bucket,
+dsc <- function(data, response, unit_id, treated_unit, bucket,
                   time = NULL,
-                  scale_method = c("none", "additive", "multiplicative"),
-                  location = c("median", "mean"),
-                  n_quantiles = 100L, lambda = 0.1,
+                  adjust_method = c("none", "shift", "scale"),
+                  location_stat = c("median", "mean"),
+                  n_quantiles = 100L, penalty = 0.1,
                   max_iter = 10000L, tol = 1e-8) {
 
-  scale_method <- rlang::arg_match(scale_method)
-  location <- rlang::arg_match(location)
+  adjust_method <- rlang::arg_match(adjust_method)
+  location_stat <- rlang::arg_match(location_stat)
   
   unit_var <- rlang::enquo(unit_id)
   resp_var <- rlang::enquo(response)
@@ -85,20 +85,25 @@ z_dsc <- function(data, response, unit_id, treated_unit, bucket,
     cli::cli_warn("The smallest bucket has only {min_n} observations. Low sample sizes increase quantile volatility.")
   }
 
-  loc_fn <- switch(location, mean = mean, median = stats::median)
+  loc_fn <- switch(location_stat, mean = base::mean, median = stats::median)
 
   unit_loc <- df |>
     dplyr::summarise(loc = loc_fn(.response, na.rm = TRUE), .by = .unit) |>
     tibble::deframe()
 
-  if (scale_method == "multiplicative" && any(unit_loc <= 0)) {
-    rlang::abort("Multiplicative scaling requires strictly positive unit locations.")
+  # Might need to correct? Canot have *any* zeros or negative values?
+  # Not just locations?
+  if (adjust_method == "scale" && any(unit_loc <= 0)) {
+    rlang::abort("Scaling requires strictly positive unit locations.")
   }
 
-  df <- switch(scale_method,
+  df <- switch(adjust_method,
     none = df,
-    additive = dplyr::mutate(df, .response = .response - unit_loc[as.character(.unit)]),
-    multiplicative = dplyr::mutate(df, .response = .response / unit_loc[as.character(.unit)])
+    shift = dplyr::mutate(df, .response = .response - unit_loc[as.character(.unit)]),
+    scale = dplyr::mutate(
+      df, 
+      .response = .response * (unit_loc[[treated_unit]] / unit_loc[as.character(.unit)])
+    )
   )
 
   df_treated <- dplyr::filter(df, .unit == treated_unit)
@@ -118,10 +123,10 @@ z_dsc <- function(data, response, unit_id, treated_unit, bucket,
   
   n_quantiles <- as.integer(n_quantiles)
   max_iter <- as.integer(max_iter)
-  lambda <- as.numeric(lambda)
+  penalty <- as.numeric(penalty)
   tol <- as.numeric(tol)
 
-  results <- z_dsc_rs(treated_list, donor_list, n_quantiles, lambda, max_iter, tol)
+  results <- dsc_rs(treated_list, donor_list, n_quantiles, penalty, max_iter, tol)
   
   # --- 10. Construct the S3 Object ---
   # NOTE: Name alignment depends entirely on factor-level ordering and the balanced-panel check. 
@@ -132,13 +137,13 @@ z_dsc <- function(data, response, unit_id, treated_unit, bucket,
   loc_target <- unit_loc[[treated_unit]]
   loc_donors <- unit_loc[donor_names]
 
-  alpha <- if (scale_method == "additive") {
+  gamma <- if (adjust_method == "shift") {
     loc_target - sum(results$weights * loc_donors)
   } else 0
 
-  # Per-donor multiplicative factors: each donor scaled to the treated level.
+  # Per-donor scale factors: each donor scaled to the treated level.
   # Estimated on pre-treatment data only and held fixed thereafter.
-  scale_factors <- if (scale_method == "multiplicative") {
+  rho <- if (adjust_method == "scale") {
     loc_target / loc_donors
   } else {
     stats::setNames(rep(1, length(donor_names)), donor_names)
@@ -146,8 +151,8 @@ z_dsc <- function(data, response, unit_id, treated_unit, bucket,
   
   out <- list(
     weights = results$weights,
-    alpha = alpha,
-    scale_factors = scale_factors,
+    gamma = gamma,
+    rho = rho,
     unit_loc = unit_loc,
     diagnostics = list(
       loss = results$loss,
@@ -167,22 +172,22 @@ z_dsc <- function(data, response, unit_id, treated_unit, bucket,
       treated_unit = treated_unit,
       donor_units = donor_names,
       n_buckets = nlevels(df$.bucket),
-      scale_method = scale_method,
-      location = location,
+      adjust_method = adjust_method,
+      location_stat = location_stat,
       n_quantiles = n_quantiles,
       probs = results$probs,
-      lambda = lambda,
+      penalty = penalty,
       max_iter = max_iter,
       tol = tol
     )
   )
   
-  structure(out, class = "z_dsc")
+  structure(out, class = "dsc")
 }
 
 #' Print method for Distributional Synthetic Controls
 #' @export
-print.z_dsc <- function(x, ...) {
+print.dsc <- function(x, ...) {
   cli::cli_h1("Distributional Synthetic Control")
   
   if (x$diagnostics$converged) {
@@ -195,15 +200,15 @@ print.z_dsc <- function(x, ...) {
     "*" = "Treated Unit: {.val {x$params$treated_unit}}",
     "*" = "Buckets: {.val {x$params$n_buckets}}",
     "*" = "Donor Pool: {.val {length(x$params$donor_units)}} total units",
-    "*" = "Ridge Penalty (lambda): {.val {x$params$lambda}}",
-    "*" = "Scaling Method: {.val {x$params$scale_method}}",
+    "*" = "Ridge Penalty (penalty): {.val {x$params$penalty}}",
+    "*" = "Scaling Method: {.val {x$params$adjust_method}}",
     "*" = "Location Measure: {.val {x$params$location}}"
   ))
   
   cli::cli_h2("Top Contributing Donors")
 
-  if (x$params$scale_method == "additive") {
-    cli::cli_alert_info("Offset Constant (alpha): {.val {sprintf('%.3f', x$alpha)}}")
+  if (x$params$adjust_method == "shift") {
+    cli::cli_alert_info("Offset Constant (gamma): {.val {sprintf('%.3f', x$gamma)}}")
     cat("\n")
   }
   
@@ -228,7 +233,7 @@ print.z_dsc <- function(x, ...) {
 
 #' Summary method for Distributional Synthetic Controls
 #' @export
-summary.z_dsc <- function(object, ...) {
+summary.dsc <- function(object, ...) {
   cli::cli_h1("DSC Diagnostic Summary")
   
   cli::cli_h2("Loss Metrics (2-Wasserstein)")
@@ -263,21 +268,21 @@ summary.z_dsc <- function(object, ...) {
 }
 
 #' @export
-tidy.z_dsc <- function(x, ...) {
+tidy.dsc <- function(x, ...) {
   df_tidy <- tibble::tibble(
     donor = names(x$weights),
     weight = unname(x$weights)
   ) |> 
     dplyr::arrange(dplyr::desc(weight))
 
-  if (x$params$scale_method == "multiplicative") {
-    # Dynamically map the scale_factor to the arranged donor column
+  if (x$params$adjust_method == "scale") {
+    # Dynamically map the vector of scale factors rho to the arranged donor column
     df_tidy <- df_tidy |> 
-      dplyr::mutate(scale_factor = unname(x$scale_factors[donor]))
-  } else if (x$params$scale_method == "additive") {
-    # Injecting the alpha intercept at the top of the tidy dataframe
+      dplyr::mutate(rho = unname(x$rho[donor]))
+  } else if (x$params$adjust_method == "shift") {
+    # Injecting the gamma intercept at the top of the tidy dataframe
     df_tidy <- dplyr::bind_rows(
-      tibble::tibble(donor = "(Intercept)", weight = x$alpha),
+      tibble::tibble(donor = "(Intercept)", weight = x$gamma),
       df_tidy
     )
   }
