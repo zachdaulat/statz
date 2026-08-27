@@ -15,3 +15,4 @@ The sample standard deviation as a double.
 \description{
 Compute the sample standard deviation of a numeric vector.
 }
+\keyword{internal}

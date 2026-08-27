@@ -2,7 +2,7 @@
 % Please edit documentation in R/extendr-wrappers.R
 \name{z_sum}
 \alias{z_sum}
-\title{Compute the sum of a numeric vector.}
+\title{Compute the sum of a numeric vector. Naïve summation with Rust's \code{.sum()} method}
 \usage{
 z_sum(x)
 }
@@ -13,5 +13,6 @@ z_sum(x)
 The sum as a double.
 }
 \description{
-Compute the sum of a numeric vector.
+Compute the sum of a numeric vector. Naïve summation with Rust's \code{.sum()} method
 }
+\keyword{internal}

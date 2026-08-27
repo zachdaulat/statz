@@ -1,161 +1,296 @@
-use faer::{Col};
+#![allow(non_snake_case)]
+
 use extendr_api::prelude::*;
+use faer::Col;
 
 // Registering this module's functions
 extendr_module! {
     mod descriptive;
-    fn z_sum;
-    fn z_mean;
-    fn z_median;
-    fn z_var;
-    fn z_sd;
-    fn z_cov;
-    fn z_cor;
-    fn z_cor_onepass;
+    fn sum;
+    fn mean;
+    fn median;
+    fn var;
+    fn sd;
+    fn cov;
+    fn cor;
+    fn quantile_r;
 }
 
-/// Compute the sum of a numeric vector.
-/// @param x A numeric vector.
+/// Compute the sum of a numeric vector using Neumaier summation
+///
+/// @description
+/// This function computes the sum of a numeric vector using the
+/// Neumaier summation algorithm for improved numerical stability. It tracks and
+/// compensates for truncated floating point bits, preventing precision loss when
+/// adding values with high magnitude variation or across large datasets.
+///
+/// @param x A numeric (double) vector.
 /// @return The sum as a double.
-/// @export
+/// @keywords internal
 #[extendr]
-pub fn z_sum(x: &[f64]) -> f64 {
-    x.iter().sum()
+pub fn sum(x: &[f64]) -> f64 {
+    // Empty vector check
+    if x.is_empty() {
+        return 0.0;
+    };
+
+    // Neumaier summation algorithm
+    let mut sum: f64 = 0.0;
+    let mut c: f64 = 0.0;
+
+    for &y in x {
+        let t: f64 = sum + y;
+
+        // Accumulating lost bits
+        if sum.abs() >= y.abs() {
+            c += (sum - t) + y;
+        } else {
+            c += (y - t) + sum;
+        }
+        sum = t;
+    }
+
+    sum + c
 }
 
-/// Compute the arithmetic mean of a numeric vector.
-/// @param x A numeric vector
+/// Compute the arithmetic mean of a numeric vector via Neumaier summation
+///
+/// @description
+/// This function calculates the arithmetic mean of a numeric vector via the
+/// Neumaier summation algorithm used in this package's `sum()` implementation.
+/// It is highly resistant to floating-point rounding errors when summing vectors
+/// with high magnitude ranges or across large datasets.
+///
+/// @param x A numeric (double) vector
 /// @return The mean as a double.
-/// @export
+/// @keywords internal
 #[extendr]
-pub fn z_mean(x: &[f64]) -> f64 {
+pub fn mean(x: &[f64]) -> Option<f64> {
     if x.is_empty() {
-        return f64::NAN;
+        return None;
     }
-    let n = x.len() as f64;
-    z_sum(x) / n
+    let n: f64 = x.len() as f64;
+
+    Some(sum(x) / n)
 }
 
 /// Compute the median of a numeric vector.
-/// @param x A numeric vector.
+///
+/// @description
+/// This function calculates the median of a numeric vector via the
+/// Quickselect/Hoare's selection algorithm. Achieves O(N) time complexity
+/// compared to O(N log N) full-sort approach.
+///
+/// @param x A numeric (double) vector.
 /// @return The median as a double
-/// @export
+/// @keywords internal
 #[extendr]
-pub fn z_median(x: &[f64]) -> f64 {
+pub fn median(x: &[f64]) -> Option<f64> {
     if x.is_empty() {
-        return f64::NAN;
+        return None;
     }
-    let mut sorted = x.to_vec();
-    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let n = sorted.len();
+    if x.iter().any(|v| v.is_nan()) {
+        return None;
+    }
+
+    let mut x_rs: Vec<f64> = x.to_vec();
+    let n: usize = x.len();
+    let k: usize = n / 2;
+    let (less, upp_mid, _greater) = x_rs.select_nth_unstable_by(k, f64::total_cmp);
+
     if n % 2 == 0 {
-        (sorted[n / 2 - 1] + sorted[n / 2]) / 2.0
+        let low_mid: f64 = less.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        Some((low_mid + *upp_mid) / 2.0)
     } else {
-        sorted[n / 2]
+        Some(*upp_mid)
     }
 }
 
-/// Compute the sample variance of a numeric vector (Bessel-corrected, n-1).
-/// @param x A numeric vector.
-/// @return The sample variance as a double.
-/// @export
+/// Compute the sample variance of a numeric vector
+///
+/// @description
+/// Calculates the sample variance using Welford's online algorithm,
+/// updating a running mean and sum of squared deviations in a
+/// single pass. This avoids the catastrophic cancellation that affects
+/// the textbook `sum(x^2) - sum(x)^2 / n` formulation, where both terms
+/// grow with the square of the mean while their difference does not.
+/// Relative precision is preserved even when the coefficient of
+/// variation is small.
+///
+/// @param x A numeric (double vector of length 2 or greater.
+/// @return The sample variance as a double, or `NA` is `x` has fewer
+///   than two elements or contains `NA` or `NaN`.
+/// @keywords internal
 #[extendr]
-pub fn z_var(x: &[f64]) -> f64 {
+pub fn var(x: &[f64]) -> Option<f64> {
     if x.len() < 2 {
-        return f64::NAN;
+        return None;
     }
-    let mean: f64 = z_mean(x);
-    let n = x.len() as f64;
-    x.iter().map(|&xi| (xi - mean).powi(2)).sum::<f64>() / (n - 1.0)
+
+    // Initializing variables for Welford's
+    let mut k: f64 = 0.0;
+    let mut Mk: f64 = 0.0;
+    let mut Sk: f64 = 0.0;
+
+    // Welford's algorithm
+    for &xi in x {
+        // Early return if any element is NaN
+        if xi.is_nan() {
+            return None;
+        }
+
+        k += 1.0;
+        let dev_prev: f64 = xi - Mk;
+        Mk += dev_prev / k;
+        let dev_new: f64 = xi - Mk;
+        Sk += dev_prev * dev_new;
+    }
+
+    let n: f64 = x.len() as f64;
+    let var: f64 = Sk / (n - 1.0);
+    Some(var)
 }
 
 /// Compute the sample standard deviation of a numeric vector.
-/// @param x A numeric vector.
-/// @return The sample standard deviation as a double.
-/// @export
+///
+/// @description
+/// Calculates the sample standard deviation by taking the
+/// square root of the variance, which uses Welford's algorithm.
+///
+/// @param x A numeric (double) vector of length 2 or greater.
+/// @return The sample standard deviation as a double, or `NA` if `x`
+///   has fewer than two elements or contains `NA` or `NaN`.
+/// @keywords internal
 #[extendr]
-pub fn z_sd(x: &[f64]) -> f64 {
-    z_var(x).sqrt()
+pub fn sd(x: &[f64]) -> Option<f64> {
+    // Relying on `var()` to do Option checks
+    var(x).map(|v| v.sqrt())
 }
 
 /// Compute the sample covariance of two numeric vectors.
-/// @param x A numeric vector.
-/// @param y A numeric vector of the same length.
-/// @return The sample covariance as a double.
-/// @export
+///
+/// @description
+/// Calculates the sample covariance using Welford's online algorithm.
+/// Co-deviations are updated in a single pass, preventing catastrophic
+/// cancellation issues present in the naïve formulation.
+///
+/// @param x A numeric (double) vector.
+/// @param y A numeric (double) vector of the same length.
+/// @return The sample covariance as a double, or `NA` if the vectors
+///   differ in length, have fewer than two elements, or contain `NA`/`NaN`.
+/// @keywords internal
 #[extendr]
-pub fn z_cov(x: &[f64], y: &[f64]) -> f64 {
+pub fn cov(x: &[f64], y: &[f64]) -> Option<f64> {
     if x.len() != y.len() || x.len() < 2 {
-        return f64::NAN;
+        return None;
     }
-    let mean_x: f64 = z_mean(x);
-    let mean_y: f64 = z_mean(y);
+
+    // Initializing variables for streaming iterator
+    let mut k: f64 = 0.0;
+    let mut Ck: f64 = 0.0;
+    let mut Mx: f64 = 0.0;
+    let mut My: f64 = 0.0;
+
+    // Welford's algorithm
+    for (&xi, &yi) in x.iter().zip(y.iter()) {
+        // Early return if any element is NaN
+        if xi.is_nan() {
+            return None;
+        }
+
+        // Deviations from *previous* mean
+        let xdev: f64 = xi - Mx;
+        let ydev: f64 = yi - My;
+
+        // Update variables
+        k += 1.0;
+        Mx += xdev / k;
+        My += ydev / k;
+        // Asymmetric formulation, using new x deviation and old y dev
+        Ck += (xi - Mx) * ydev;
+    }
+
     let n: f64 = x.len() as f64;
-    x.iter()
-        .zip(y.iter())
-        .map(|(&xi, &yi)| (xi - mean_x) * (yi - mean_y))
-        .sum::<f64>()
-        / (n - 1.0)
+    let cov: f64 = Ck / (n - 1.0);
+    Some(cov)
 }
 
-/// Compute the Pearson correlation coefficient of two numeric vectors.
-/// @param x A numeric vector.
-/// @param y A numeric vector.
-/// @return The sample correlation as a double
-/// @export
+/// Compute Pearson correlation coefficient
+///
+/// @description
+/// Calculates the Pearson correlation coefficient via Welford's online algorithm
+/// for the variance and covariance accumulators.
+///
+/// @param x A numeric (double) vector.
+/// @param y A numeric (double) vector of the same length.
+/// @return The sample correlation as a double bounded between -1.0 and 1.0,
+///   or `NA` if the vectors differ in length, have fewer than two elements,
+///   contain `NA`/`NaN`, or have zero variance.
+/// @keywords internal
 #[extendr]
-pub fn z_cor(x: &[f64], y: &[f64]) -> f64 {
+pub fn cor(x: &[f64], y: &[f64]) -> Option<f64> {
     if x.len() != y.len() || x.len() < 2 {
-        return f64::NAN;
-    }
-    z_cov(x, y) / (z_sd(x) * z_sd(y))
-}
-
-/// Compute Pearson correlation coefficient, optimized single-pass
-/// @param x A numeric vector.
-/// @param y A numeric vector.
-/// @return The sample correlation as a double
-/// @export
-#[extendr]
-pub fn z_cor_onepass(x: &[f64], y: &[f64]) -> f64 {
-    if x.len() != y.len() || x.len() < 2 {
-        return f64::NAN;
+        return None;
     }
 
-    let n: f64 = x.len() as f64;
-    let mut sum_x: f64 = 0.0;
-    let mut sum_y: f64 = 0.0;
-    let mut sum_xy: f64 = 0.0;
-    let mut sum_x2: f64 = 0.0;
-    let mut sum_y2: f64 = 0.0;
+    let mut k: f64 = 0.0;
+    let mut Mx: f64 = 0.0;
+    let mut My: f64 = 0.0;
+    let mut Sx: f64 = 0.0;
+    let mut Sy: f64 = 0.0;
+    let mut Ck: f64 = 0.0;
 
     for (&xi, &yi) in x.iter().zip(y.iter()) {
-        sum_x += xi;
-        sum_y += yi;
-        sum_xy += xi * yi;
-        sum_x2 += xi * xi;
-        sum_y2 += yi * yi;
+        // Early return if any element is NaN
+        if xi.is_nan() {
+            return None;
+        }
+
+        let xdev_prev: f64 = xi - Mx;
+        let ydev_prev: f64 = yi - My;
+
+        // Update variables
+        k += 1.0;
+        Mx += xdev_prev / k;
+        My += ydev_prev / k;
+
+        let xdev: f64 = xi - Mx;
+        let ydev: f64 = yi - My;
+
+        Sx += xdev * xdev_prev;
+        Sy += ydev * ydev_prev;
+        Ck += xdev * ydev_prev;
     }
 
-    let numer = sum_xy - (sum_x * sum_y / n);
-    let denom = ((sum_x2 - (sum_x.powi(2) / n)) * (sum_y2 - (sum_y.powi(2) / n))).sqrt();
+    let denom: f64 = (Sx * Sy).sqrt();
+    if denom == 0.0 {
+        return None;
+    }
+    let r: f64 = (Ck / denom).clamp(-1.0, 1.0);
 
-    numer / denom
+    Some(r)
 }
 
-// // Future quantile function for export to R using Rust level function
-// #[extendr]
-// pub fn z_quantile(x: Doubles, probs: Doubles) -> Doubles {
-//     // 1. Converting Doubles inputs to slices
-//     let x_slice = x.as_slice();
-//     let probs_slice = probs.as_slice();
+/// Compute sample quantiles for a numeric vector
+///
+/// @description
+/// Calculates sample quantiles for the specified probabilities.
+/// This implementation replicates R's default Type 7 continupus sample
+/// quantile method (linear interpolation).
+///
+/// @param x A numeric (double) vector.
+/// @param probs A numeric (double) vector of probabilities with values between 0 and 1.
+/// @return A numeric (double) vector of calculated quantiles. Returns `NaN`
+///   for any requested probability if `x` is empty.
+/// @keywords internal
+#[extendr(r_name = "quantile")]
+pub fn quantile_r(x: &[f64], probs: &[f64]) -> Doubles {
+    // Zero-copy slices passed directly to quantile()
+    let quantiles_col: Col<f64> = quantile(x, probs);
 
-//     // 2. Calling core engine quantile()
-//     let quantiles_col: Col<f64> = quantile(x_slice, probs_slice);
-
-//     // 3. Converting Col<f64> to R's Doubles
-//     quantiles_col.iter().collect::<Doubles>()
-// }
+    // Allocating the return vector to hand back to R
+    quantiles_col.iter().collect::<Doubles>()
+}
 
 // Internally used empirical quantile function
 pub(crate) fn quantile(x: &[f64], probs: &[f64]) -> Col<f64> {
@@ -194,72 +329,100 @@ mod tests {
 
     #[test]
     fn test_sum() {
-        assert_eq!(z_sum(&[1.0, 2.0, 3.0]), 6.0);
-        assert_eq!(z_sum(&[]), 0.0);
+        assert_eq!(sum(&[1.0, 2.0, 3.0]), 6.0);
+        assert_eq!(sum(&[]), 0.0);
     }
 
     #[test]
     fn test_mean() {
-        assert!((z_mean(&[1.0, 2.0, 3.0]) - 2.0).abs() < 1e-10);
-        assert!(z_mean(&[]).is_nan());
+        assert!((mean(&[1.0, 2.0, 3.0]).unwrap() - 2.0).abs() < 1e-14);
+        assert!(mean(&[]).is_none()); // Replaced .is_nan() with .is_none()
     }
 
     #[test]
     fn test_median_odd() {
-        assert_eq!(z_median(&[3.0, 1.0, 2.0]), 2.0);
+        assert_eq!(median(&[3.0, 1.0, 2.0]).unwrap(), 2.0);
     }
 
     #[test]
     fn test_median_even() {
-        assert_eq!(z_median(&[4.0, 1.0, 3.0, 2.0]), 2.5);
+        assert_eq!(median(&[4.0, 1.0, 3.0, 2.0]).unwrap(), 2.5);
     }
 
     #[test]
     fn test_variance() {
-        // var(c(2, 4, 4, 4, 5, 5, 7, 9)) in R = 4.571429
         let x = vec![2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0];
-        assert!((z_var(&x) - 4.571428571428571).abs() < 1e-10);
+        assert!((var(&x).unwrap() - 4.571428571428571).abs() < 1e-14);
+        assert!(var(&[1.0]).is_none()); // Checking length < 2 logic
+    }
+
+    #[test]
+    fn test_sd() {
+        let x = vec![2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0];
+        assert!((sd(&x).unwrap() - 2.138089935299395).abs() < 1e-14);
+    }
+
+    #[test]
+    fn test_var_welford_stability() {
+        // High mean, low variance. A naive sum(x^2) - sum(x)^2/n approach
+        // suffers catastrophic cancellation here. Welford's handles it perfectly.
+        let offset = 1e9;
+        let x = vec![offset + 1.0, offset + 2.0, offset + 3.0];
+        // Variance of [1, 2, 3] is exactly 1.0. Adding an offset shouldn't change it.
+        assert!((var(&x).unwrap() - 1.0).abs() < 1e-14);
     }
 
     #[test]
     fn test_covariance_identical() {
-        // cov(x, x) should equal var(x)
         let x = vec![2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0];
-        assert!((z_cov(&x, &x) - z_var(&x)).abs() < 1e-10);
+        assert!((cov(&x, &x).unwrap() - var(&x).unwrap()).abs() < 1e-14);
+        assert!(cov(&x, &[1.0, 2.0]).is_none()); // Mismatched lengths
+    }
+
+    #[test]
+    fn test_covariance_welford_stability() {
+        let offset = 1e9;
+        let x = vec![offset + 1.0, offset + 2.0, offset + 3.0];
+        let y = vec![offset + 3.0, offset + 2.0, offset + 1.0];
+        // True covariance of [1,2,3] and [3,2,1] is -1.0.
+        assert!((cov(&x, &y).unwrap() - (-1.0)).abs() < 1e-14);
     }
 
     #[test]
     fn test_cor_perfect_positive() {
-        // cor(x, x) = 1.0
         let x = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-        assert!((z_cor(&x, &x) - 1.0).abs() < 1e-10);
-        assert!((z_cor_onepass(&x, &x) - 1.0).abs() < 1e-10);
+        assert!((cor(&x, &x).unwrap() - 1.0).abs() < 1e-14);
     }
 
     #[test]
     fn test_cor_perfect_negative() {
         let x = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         let y = vec![5.0, 4.0, 3.0, 2.0, 1.0];
-        assert!((z_cor(&x, &y) - (-1.0)).abs() < 1e-10);
-        assert!((z_cor_onepass(&x, &y) - (-1.0)).abs() < 1e-10);
+        assert!((cor(&x, &y).unwrap() - (-1.0)).abs() < 1e-14);
     }
 
     #[test]
-    fn test_cor_implementations_agree() {
-        // Both implementations should produce the same result
-        let x = vec![2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0];
-        let y = vec![1.0, 3.0, 5.0, 2.0, 7.0, 6.0, 8.0, 4.0];
-        assert!((z_cor(&x, &y) - z_cor_onepass(&x, &y)).abs() < 1e-10);
+    fn test_cor_zero_variance() {
+        let x = vec![5.0, 5.0, 5.0];
+        let y = vec![1.0, 2.0, 3.0];
+        // cor() should return None to avoid division by zero when denom is 0.0
+        assert!(cor(&x, &y).is_none());
+    }
+
+    #[test]
+    fn test_cor_welford_stability() {
+        let offset = 1e9;
+        let x = vec![offset + 1.0, offset + 2.0, offset + 3.0];
+        let y = vec![offset + 3.0, offset + 2.0, offset + 1.0];
+        // True correlation is perfect negative (-1.0).
+        assert!((cor(&x, &y).unwrap() - (-1.0)).abs() < 1e-14);
     }
 
     // ==========================================
     // Tests for quantile
     // ==========================================
-
-    // Import everything from the parent module
     use faer::{col, Col};
 
-    /// Helper function for safe floating-point comparison of faer columns
     fn assert_col_eq(a: &Col<f64>, b: &Col<f64>, tol: f64) {
         assert_eq!(a.nrows(), b.nrows(), "Dimension mismatch");
         for i in 0..a.nrows() {
@@ -275,55 +438,36 @@ mod tests {
 
     #[test]
     fn test_quantile_sorted_data() {
-        // Basic test with pre-sorted data checking standard quartiles
         let data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         let probs = vec![0.0, 0.5, 1.0];
-        
-        // Adjust the path to crate::descriptive::quantile if this test 
-        // is housed outside the descriptive module
         let q = crate::descriptive::quantile(&data, &probs);
         let expected = col![1.0, 3.0, 5.0];
-        
-        assert_col_eq(&q, &expected, 1e-9);
+        assert_col_eq(&q, &expected, 1e-14);
     }
 
     #[test]
     fn test_quantile_unsorted_data() {
-        // The quantile function should handle unsorted memory seamlessly
         let data = vec![5.0, 1.0, 4.0, 2.0, 3.0];
         let probs = vec![0.25, 0.75];
-        
         let q = crate::descriptive::quantile(&data, &probs);
-        
-        // Assuming R's Type 7 interpolation: 
-        // 25th percentile of 1:5 is 2.0, 75th percentile is 4.0
         let expected = col![2.0, 4.0];
-        
-        assert_col_eq(&q, &expected, 1e-9);
+        assert_col_eq(&q, &expected, 1e-14);
     }
 
     #[test]
     fn test_quantile_single_observation() {
-        // A bucket with only 1 observation should return that observation 
-        // for any requested probability, without triggering an out-of-bounds panic.
         let data = vec![42.0];
         let probs = vec![0.1, 0.5, 0.9];
-        
         let q = crate::descriptive::quantile(&data, &probs);
         let expected = col![42.0, 42.0, 42.0];
-        
-        assert_col_eq(&q, &expected, 1e-9);
+        assert_col_eq(&q, &expected, 1e-14);
     }
 
     #[test]
     fn test_quantile_empty_slice() {
-        // An empty slice should gracefully return a column of NaNs 
-        // to prevent usize underflow panics.
         let data: Vec<f64> = vec![];
         let probs = vec![0.25, 0.75];
-        
         let q = crate::descriptive::quantile(&data, &probs);
-        
         assert_eq!(q.nrows(), 2);
         assert!(q[0].is_nan(), "Expected NaN for empty slice");
         assert!(q[1].is_nan(), "Expected NaN for empty slice");

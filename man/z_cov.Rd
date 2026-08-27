@@ -17,3 +17,4 @@ The sample covariance as a double.
 \description{
 Compute the sample covariance of two numeric vectors.
 }
+\keyword{internal}

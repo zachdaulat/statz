@@ -15,3 +15,4 @@ The median as a double
 \description{
 Compute the median of a numeric vector.
 }
+\keyword{internal}

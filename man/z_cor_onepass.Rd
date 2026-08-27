@@ -17,3 +17,4 @@ The sample correlation as a double
 \description{
 Compute Pearson correlation coefficient, optimized single-pass
 }
+\keyword{internal}

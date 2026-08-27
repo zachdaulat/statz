@@ -18,7 +18,6 @@ SystemRequirements: Cargo (Rust's package manager), rustc
 Suggests:
     broom,
     palmerpenguins,
-    purrr,
     quadprog,
     statmod,
     testthat (>= 3.0.0),

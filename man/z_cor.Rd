@@ -17,3 +17,4 @@ The sample correlation as a double
 \description{
 Compute the Pearson correlation coefficient of two numeric vectors.
 }
+\keyword{internal}

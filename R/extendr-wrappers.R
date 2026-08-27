@@ -5,56 +5,167 @@
 #' @useDynLib statz, .registration = TRUE
 NULL
 
-#' Compute the sum of a numeric vector.
+#' Compute the sum of a numeric vector. Naïve summation with Rust's `.sum()` method
 #' @param x A numeric vector.
 #' @return The sum as a double.
-#' @export
+#' @keywords internal
 z_sum <- function(x) .Call(wrap__z_sum, x)
 
 #' Compute the arithmetic mean of a numeric vector.
 #' @param x A numeric vector
 #' @return The mean as a double.
-#' @export
+#' @keywords internal
 z_mean <- function(x) .Call(wrap__z_mean, x)
 
 #' Compute the median of a numeric vector.
 #' @param x A numeric vector.
 #' @return The median as a double
-#' @export
+#' @keywords internal
 z_median <- function(x) .Call(wrap__z_median, x)
 
 #' Compute the sample variance of a numeric vector (Bessel-corrected, n-1).
 #' @param x A numeric vector.
 #' @return The sample variance as a double.
-#' @export
+#' @keywords internal
 z_var <- function(x) .Call(wrap__z_var, x)
 
 #' Compute the sample standard deviation of a numeric vector.
 #' @param x A numeric vector.
 #' @return The sample standard deviation as a double.
-#' @export
+#' @keywords internal
 z_sd <- function(x) .Call(wrap__z_sd, x)
 
 #' Compute the sample covariance of two numeric vectors.
 #' @param x A numeric vector.
 #' @param y A numeric vector of the same length.
 #' @return The sample covariance as a double.
-#' @export
+#' @keywords internal
 z_cov <- function(x, y) .Call(wrap__z_cov, x, y)
 
 #' Compute the Pearson correlation coefficient of two numeric vectors.
 #' @param x A numeric vector.
 #' @param y A numeric vector.
 #' @return The sample correlation as a double
-#' @export
+#' @keywords internal
 z_cor <- function(x, y) .Call(wrap__z_cor, x, y)
 
 #' Compute Pearson correlation coefficient, optimized single-pass
 #' @param x A numeric vector.
 #' @param y A numeric vector.
 #' @return The sample correlation as a double
-#' @export
+#' @keywords internal
 z_cor_onepass <- function(x, y) .Call(wrap__z_cor_onepass, x, y)
+
+dsc_rs <- function(treated, donors, n_quantiles, penalty, max_iter, tol) .Call(wrap__dsc_rs, treated, donors, n_quantiles, penalty, max_iter, tol)
+
+#' Compute the sum of a numeric vector using Neumaier summation
+#'
+#' @description
+#' This function computes the sum of a numeric vector using the
+#' Neumaier summation algorithm for improved numerical stability. It tracks and
+#' compensates for truncated floating point bits, preventing precision loss when
+#' adding values with high magnitude variation or across large datasets.
+#'
+#' @param x A numeric (double) vector.
+#' @return The sum as a double.
+#' @keywords internal
+sum <- function(x) .Call(wrap__sum, x)
+
+#' Compute the arithmetic mean of a numeric vector via Neumaier summation
+#'
+#' @description
+#' This function calculates the arithmetic mean of a numeric vector via the
+#' Neumaier summation algorithm used in this package's `sum()` implementation.
+#' It is highly resistant to floating-point rounding errors when summing vectors
+#' with high magnitude ranges or across large datasets.
+#'
+#' @param x A numeric (double) vector
+#' @return The mean as a double.
+#' @keywords internal
+mean <- function(x) .Call(wrap__mean, x)
+
+#' Compute the median of a numeric vector.
+#'
+#' @description
+#' This function calculates the median of a numeric vector via the
+#' Quickselect/Hoare's selection algorithm. Achieves O(N) time complexity
+#' compared to O(N log N) full-sort approach.
+#'
+#' @param x A numeric (double) vector.
+#' @return The median as a double
+#' @keywords internal
+median <- function(x) .Call(wrap__median, x)
+
+#' Compute the sample variance of a numeric vector
+#'
+#' @description
+#' Calculates the sample variance using Welford's online algorithm,
+#' updating a running mean and sum of squared deviations in a
+#' single pass. This avoids the catastrophic cancellation that affects
+#' the textbook `sum(x^2) - sum(x)^2 / n` formulation, where both terms
+#' grow with the square of the mean while their difference does not.
+#' Relative precision is preserved even when the coefficient of
+#' variation is small.
+#'
+#' @param x A numeric (double vector of length 2 or greater.
+#' @return The sample variance as a double, or `NA` is `x` has fewer
+#'   than two elements or contains `NA` or `NaN`.
+#' @keywords internal
+var <- function(x) .Call(wrap__var, x)
+
+#' Compute the sample standard deviation of a numeric vector.
+#'
+#' @description
+#' Calculates the sample standard deviation by taking the
+#' square root of the variance, which uses Welford's algorithm.
+#'
+#' @param x A numeric (double) vector of length 2 or greater.
+#' @return The sample standard deviation as a double, or `NA` if `x`
+#'   has fewer than two elements or contains `NA` or `NaN`.
+#' @keywords internal
+sd <- function(x) .Call(wrap__sd, x)
+
+#' Compute the sample covariance of two numeric vectors.
+#'
+#' @description
+#' Calculates the sample covariance using Welford's online algorithm.
+#' Co-deviations are updated in a single pass, preventing catastrophic
+#' cancellation issues present in the naïve formulation.
+#'
+#' @param x A numeric (double) vector.
+#' @param y A numeric (double) vector of the same length.
+#' @return The sample covariance as a double, or `NA` if the vectors
+#'   differ in length, have fewer than two elements, or contain `NA`/`NaN`.
+#' @keywords internal
+cov <- function(x, y) .Call(wrap__cov, x, y)
+
+#' Compute Pearson correlation coefficient
+#'
+#' @description
+#' Calculates the Pearson correlation coefficient via Welford's online algorithm
+#' for the variance and covariance accumulators.
+#'
+#' @param x A numeric (double) vector.
+#' @param y A numeric (double) vector of the same length.
+#' @return The sample correlation as a double bounded between -1.0 and 1.0,
+#'   or `NA` if the vectors differ in length, have fewer than two elements,
+#'   contain `NA`/`NaN`, or have zero variance.
+#' @keywords internal
+cor <- function(x, y) .Call(wrap__cor, x, y)
+
+#' Compute sample quantiles for a numeric vector
+#'
+#' @description
+#' Calculates sample quantiles for the specified probabilities.
+#' This implementation replicates R's default Type 7 continupus sample
+#' quantile method (linear interpolation).
+#'
+#' @param x A numeric (double) vector.
+#' @param probs A numeric (double) vector of probabilities with values between 0 and 1.
+#' @return A numeric (double) vector of calculated quantiles. Returns `NaN`
+#'   for any requested probability if `x` is empty.
+#' @keywords internal
+quantile <- function(x, probs) .Call(wrap__quantile_r, x, probs)
 
 #' Compute the normal probability density function (PDF)
 #' @param x A single numeric value at which to evaluate the density
@@ -249,7 +360,5 @@ z_eigen <- function(x) .Call(wrap__z_eigen, x)
 #' 
 #' @export
 z_svd <- function(x) .Call(wrap__z_svd, x)
-
-dsc_rs <- function(treated, donors, n_quantiles, penalty, max_iter, tol) .Call(wrap__dsc_rs, treated, donors, n_quantiles, penalty, max_iter, tol)
 
 # nolint end

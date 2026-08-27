@@ -15,3 +15,4 @@ The sample variance as a double.
 \description{
 Compute the sample variance of a numeric vector (Bessel-corrected, n-1).
 }
+\keyword{internal}

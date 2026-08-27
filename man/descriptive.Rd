@@ -13,12 +13,12 @@ and \code{\link[stats:cor]{stats::cov()}}, but are implemented from scratch in R
 x <- c(2, 4, 4, 4, 5, 5, 7, 9)
 
 # Compare with base R
-z_mean(x)
-mean(x)
+statz:::mean(x)
+base::mean(x)
 
-z_var(x)
-var(x)
+statz:::var(x)
+stats::var(x)
 
-z_sd(x)
-sd(x)
+statz:::sd(x)
+stats::sd(x)
 }

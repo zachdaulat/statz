@@ -15,3 +15,4 @@ The mean as a double.
 \description{
 Compute the arithmetic mean of a numeric vector.
 }
+\keyword{internal}
