@@ -1,30 +1,29 @@
-#' Fit a linear model via Rust backends
+#' Fit a linear model via Rust
 #'
+#' @description
 #' Fits an ordinary least squares (OLS) regression using compiled Rust linear
 #' algebra engines. Designed as a pedagogical alternative to `stats::lm()`.
 #'
-#' @param formula An object ob class "formula" (or one that can be coerced to that class).
-#' @param data A data frame, tibble, or environment containing the variables in the models.
+#' @param formula An object of class "formula" (or one that can be coerced to that class).
+#' @param data A data frame, tibble, or environment containing the model's variables.
 #' @param engine A character string specifying the computational backend.
-#'   Currently supports "naive" (Cholesky factorisation of normal equation).
+#'   Currently supports "cholesky" (fastest, requires full rank) or "qr" (numerically stable).
 #'
-#' @return A list of class `z_lm` containing coefficients, standard errors,
+#' @return A list of class `statz_lm` containing coefficients, standard errors,
 #'   fitted values, residuals, degrees of freedom, and the residual standard error.
 #' @export
 #'
 #' @examples
 #' # Fit a basic model
-#' fit <- z_lm(mpg ~ wt + cyl, data = mtcars)
-z_lm <- function(formula, data, engine = c("cholesky", "qr", "svd")) {
+#' fit <- lm(mpg ~ wt + cyl, data = mtcars)
+lm <- function(formula, data, engine = c("cholesky", "qr", "svd")) {
   # Matching the engine argument to the provided options
   engine <- rlang::arg_match(engine)
 
-  # --- 1. Evaluating the formula and handle NAs
+  # --- 1. Evaluating the formula and components
   # na.fail ensures the function aborts immediately if any missing data is present
-  mf <- stats::model.frame(formula, data, na.action = stats::na.fail)
-
-  # --- 2. Extracting components
   # model.matrix automatically adds the intercept column of 1s
+  mf <- stats::model.frame(formula, data, na.action = stats::na.fail)
   x_mat <- stats::model.matrix(formula, mf)
   y_col <- stats::model.response(mf)
 
@@ -32,23 +31,15 @@ z_lm <- function(formula, data, engine = c("cholesky", "qr", "svd")) {
     rlang::abort("The response variable must be strictly numeric.")
   }
 
-  # Explicit coersion to R's double precision float if integer
-  y_col <- as.double(y_col)
+  # --- 2. Passing inputs to Rust
+  res <- lm_rs(x = x_mat, y = as.double(y_col), engine = engine)
 
-  # --- 3. Dispatching to specified Rust engine
-  res <- switch(
-    engine,
-    "cholesky" = z_lm_chol(x = x_mat, y = y_col),
-    "qr" = z_lm_qr(x = x_mat, y = y_col),
-    "svd" = rlang::abort("SVD engine not yet implemented.")
-  )
-
-  # --- 4. Formatting the output
+  # --- 3. Formatting the output
   # Applying the column names from the design matrix to the output vectors
   # Applying custom class for future S3 methods like print() and summary()
   names(res$coefficients) <- colnames(x_mat)
   names(res$std_errors) <- colnames(x_mat)
-  class(res) <- "z_lm"
+  class(res) <- "statz_lm"
 
   res
 }

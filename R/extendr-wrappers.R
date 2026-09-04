@@ -56,6 +56,61 @@ z_cor <- function(x, y) .Call(wrap__z_cor, x, y)
 #' @keywords internal
 z_cor_onepass <- function(x, y) .Call(wrap__z_cor_onepass, x, y)
 
+#' Compute the standard normal cumulative distribution function (CDF)
+#'
+#' @description
+#' Uses the Abramowitz and Stegun (1972, 10th ed.) equation 7.1.26
+#' error function approximation. Deprecated in favour of the
+#' libm::erfc() implementation but kept as an initial pedagogical version.
+#' Maximum absolute error: |ε| < 1.5 × 10^7
+#'
+#' @param z A z-score (standardised value)
+#' @param lower_tail Logical; if TRUE (default), probabilities are P(X <= x).
+#' @param log_p Logical; if TRUE, probabilities p are given as ln(p).
+#' @return A numeric vector of cumulative probabilities.
+#' @keywords internal
+pnorm_as <- function(z, lower_tail, log_p) .Call(wrap__pnorm_as, z, lower_tail, log_p)
+
+#' Compute the Poisson probability mass function
+#'
+#' @description
+#' Compute the Poisson cumulative distribution function P(X ≤ x)
+#' using log-space PMF evaluation for each term.
+#'
+#' @param x A numeric (double) vector of non-negative whole numbers.
+#' @param lambda The rate parameter (λ > 0).
+#' @param log Logical; if TRUE, probabilities p are given as ln(p).
+#' @return A numeric vector of probability masses.
+#' @keywords internal
+ppois_di <- function(x, lambda, log_p) .Call(wrap__ppois_di, x, lambda, log_p)
+
+#' Compute ln Γ(z) using Godfrey's Lanczos coefficient set (g=7, N=9).
+#'
+#' @description
+#' This is a pedagogical implementation of the traditional Lanczos approximation
+#' using Paul Godfrey's well-known f64 coefficient set. Unlike the Boost
+#' adaptation in `lgamma()`, this uses the standard formulation:
+#'
+#'   ln Γ(z) = ½ ln(2π) + (z - ½) ln(z + g - ½) - (z + g - ½) + ln S(z)
+#'
+#' where S(z) = c₀ + Σ(k=1..8) cₖ/(z-1+k) is the Lanczos sum with
+#' alternating-sign coefficients, and the formula is evaluated after
+#' shifting z → z-1 to convert from Γ(z+1) to Γ(z).
+#'
+#' This implementation is less precise than `lgamma()` due to potential
+#' cancellation in the alternating-sign sum, but is included as a learning
+#' exercise.
+#'
+#' @references
+#' - Godfrey, P. "Lanczos Implementation of the Gamma Function."
+#'   <http://my.fit.edu/~gabdo/gamma.txt>
+#' - <https://www.mrob.com/pub/ries/lanczos-gamma.html>
+#'
+#' @param z A numeric (double) vector of positive values.
+#' @return A numeric vector containing the natural logarithm of the gamma function.
+#' @keywords internal
+lgamma_godfrey <- function(z) .Call(wrap__lgamma_godfrey, z)
+
 dsc_rs <- function(treated, donors, n_quantiles, penalty, max_iter, tol) .Call(wrap__dsc_rs, treated, donors, n_quantiles, penalty, max_iter, tol)
 
 #' Compute the sum of a numeric vector using Neumaier summation
@@ -167,59 +222,62 @@ cor <- function(x, y) .Call(wrap__cor, x, y)
 #' @keywords internal
 quantile <- function(x, probs) .Call(wrap__quantile_r, x, probs)
 
-#' Compute the normal probability density function (PDF)
-#' @param x A single numeric value at which to evaluate the density
-#' @param mean The mean of the normal distribution (μ)
-#' @param sd The standard deviation of the normal distribution (σ > 0)
-#' @return The probability density f(x | μ, σ)
-#' @export
-z_dnorm_rs <- function(x, mean, sd, log) .Call(wrap__z_dnorm_rs, x, mean, sd, log)
-
-#' Compute the standard normal cumulative distribution function (CDF)
-#' using the `libm` crate error function implementations for full f64
-#' machine precision.
-#' @param z A z-score (standardised value)
-#' @return Cumulative probability Φ(z) = P(Z ≤ z) for Z ~ N(0,1)
-#' @export
-z_pnorm_std <- function(z, lower_tail, log_p) .Call(wrap__z_pnorm_std, z, lower_tail, log_p)
-
-#' Compute the standard normal cumulative distribution function (CDF)
-#' using the Abramowitz and Stegun (1972, 10th ed.) equation 7.1.26
-#' error function approximation.
-#' Deprecated in favour of the libm::erfc() implementation but kept
-#' as an initial pedagogical version.
-#' Maximum absolute error: |ε| < 1.5 × 10⁻⁷
-#' @param z A z-score (standardised value)
-#' @return Cumulative probability Φ(z) = P(Z ≤ z) for Z ~ N(0,1)
-#' @export
-z_pnorm_as <- function(z, lower_tail, log_p) .Call(wrap__z_pnorm_as, z, lower_tail, log_p)
-
-#' Compute the Poisson probability mass function P(X = x)
-#' using log-space arithmetic to avoid factorial overflow.
-#' @param x A non-negative integer count
-#' @param lambda The rate parameter (λ > 0)
-#' @return The probability mass P(X = x | λ)
-#' @export
-z_dpois_rs <- function(x, lambda, log) .Call(wrap__z_dpois_rs, x, lambda, log)
-
-#' Compute the Poisson cumulative distribution function P(X ≤ x)
-#' using log-space PMF evaluation for each term.
-#' @param x A non-negative integer count
-#' @param lambda The rate parameter (λ > 0)
-#' @return The cumulative probability P(X ≤ x | λ)
-#' @export
-z_ppois_di <- function(x, lambda, log_p) .Call(wrap__z_ppois_di, x, lambda, log_p)
-
-#' Compute the Poisson cumulative distribution function P(X ≤ x)
-#' using a recurrence relation: P(X = k) = P(X = k-1) · λ/k
-#' @param x A non-negative integer count
-#' @param lambda The rate parameter (λ > 0)
-#' @return The cumulative probability P(X ≤ x | λ)
-#' @export
-z_ppois_rec <- function(x, lambda, lower_tail, log_p) .Call(wrap__z_ppois_rec, x, lambda, lower_tail, log_p)
-
-#' Compute the natural logarithm of the gamma function, ln Γ(z).
+#' Compute the normal probability density function
 #'
+#' @description
+#' Computes the density f(x | μ, σ) for X ~ N(mean, sd^2).
+#'
+#' @param x A numeric (double) vector of quantiles.
+#' @param mean Mean of the normal distribution.
+#' @param sd Standard deviation of the normal distribution.
+#' @param log Logical; if TRUE, probabilities p are given as ln(p).
+#' @return A numeric vector of probability densities.
+#' @export
+dnorm <- function(x, mean = 0.0, sd = 1.0, log = FALSE) .Call(wrap__dnorm_r, x, mean, sd, log)
+
+#' Compute the normal cumulative distribution function
+#'
+#' @description
+#' Computes Φ(z) = P(X <= x) for X ~ N(mean, sd^2) utilizing the `libm`
+#' complementary error function (erfc) for full 64-bit machine precision.
+#'
+#' @param x A numeric (double) vector of quantiles.
+#' @param mean Mean of the normal distribution.
+#' @param sd Standard deviation of the normal distribution.
+#' @param lower_tail Logical; if TRUE (default), probabilities are P(X <= x).
+#' @param log_p Logical; if TRUE, probabilities p are given as ln(p).
+#' @return A numeric vector of cumulative probabilities.
+#' @export
+pnorm <- function(x, mean = 0.0, sd = 1.0, lower_tail = TRUE, log_p = FALSE) .Call(wrap__pnorm_r, x, mean, sd, lower_tail, log_p)
+
+#' Compute the Poisson probability mass function
+#'
+#' @description
+#' Computes P(X = x) using log-space arithmetic to avoid factorial overflow.
+#'
+#' @param x A numeric (double) vector of non-negative whole numbers.
+#' @param lambda The rate parameter (λ > 0).
+#' @param log Logical; if TRUE, probabilities p are given as ln(p).
+#' @return A numeric vector of probability masses.
+#' @export
+dpois <- function(x, lambda, log = FALSE) .Call(wrap__dpois_r, x, lambda, log)
+
+#' Compute the Poisson cumulative distribution function
+#'
+#' @description
+#' Computes P(X <= x) using a recurrence relation for numerical stability.
+#'
+#' @param x A numeric (double) vector of non-negative whole numbers.
+#' @param lambda The rate parameter (λ > 0).
+#' @param lower_tail Logical; if TRUE (default), probabilities are P(X <= x).
+#' @param log_p Logical; if TRUE, probabilities p are given as ln(p).
+#' @return A numeric vector of cumulative probabilities.
+#' @export
+ppois <- function(x, lambda, lower_tail = TRUE, log_p = FALSE) .Call(wrap__ppois_r, x, lambda, lower_tail, log_p)
+
+#' Compute the natural logarithm of the gamma function: ln Γ(z).
+#'
+#' @description
 #' Uses a simplified adaptation of the Boost.Math C++ library's Lanczos
 #' approximation (lanczos13m53 parameter set, N=13, G≈6.0247),
 #' optimised for IEEE 754 double-precision (f64) arithmetic. The coefficients
@@ -232,33 +290,29 @@ z_ppois_rec <- function(x, lambda, lower_tail, log_p) .Call(wrap__z_ppois_rec, x
 #' avoiding the catastrophic cancellation that can occur with the traditional
 #' alternating-sign summation formulation.
 #'
-#' Maximum approximation error: ~1.2 × 10⁻¹⁷ (near full f64 precision),
+#' Maximum approximation error: ~1.2 × 10^17 (near full f64 precision),
 #' except for inputs infinitesimally close to 1 and 2.
 #'
 #' Simplifications relative to the full Boost implementation:
 #' - Omits the special Taylor series handling for z near 1 and 2
-#'   (costs ~1-2 ULPs in those neighbourhoods, negligible for statistical use)
-#' - Omits the log(tgamma(z)) path for 3 ≤ z < 100
+#'   (costs ~1-2 ULPs in those neighbourhoods)
+#' - A precomputed `LN_FACTORIALS` array storing integer inputs from ln(0!) to ln(15!)
 #'
-#' # Arguments
-#' * `z` - A positive real number (z > 0), or z < 0.5 (handled via reflection)
-#'
-#' # Returns
-#' The value of ln Γ(z) as an f64.
-#'
-#' # References
+#' @references
 #' - Boost.Math library: <https://www.boost.org/doc/libs/latest/libs/math/doc/html/math_toolkit/lanczos.html>
 #' - Pugh, G.R. (2004). "An Analysis of the Lanczos Gamma Approximation."
 #'   PhD thesis, University of British Columbia.
 #' - Lanczos, C. (1964). "A Precision Approximation of the Gamma Function."
 #'   SIAM Journal on Numerical Analysis, 1(1), 86-96.
-#' @param z A positive numeric value
-#' @return The natural logarithm of the gamma function at z
-#' @export
-z_lgamma <- function(z) .Call(wrap__z_lgamma, z)
-
-#' Compute the gamma distribution probability density function.
 #'
+#' @param z A numeric (double) vector of positive values.
+#' @return A numeric vector containing the natural logarithm of the gamma function.
+#' @export
+lgamma <- function(z) .Call(wrap__lgamma_r, z)
+
+#' Internal Gamma PDF Engine
+#'
+#' @description
 #' Evaluates the PDF of the Gamma(shape, rate) distribution at x using
 #' log-space arithmetic to avoid overflow:
 #'
@@ -267,18 +321,19 @@ z_lgamma <- function(z) .Call(wrap__z_lgamma, z)
 #' Computed as:
 #'   ln f = α·ln(β) - ln Γ(α) + (α-1)·ln(x) - β·x
 #'
-#' The log-gamma term is evaluated via `z_lgamma()` (Boost adaptation).
+#' The log-gamma term is evaluated via `lgamma()` (Boost adaptation).
 #'
-#' # Returns
-#' The probability density f(x | α, β), or its natural log if `log = true`.
 #' @param x A positive numeric value
 #' @param shape The shape parameter (α > 0)
 #' @param rate The rate parameter (β > 0)
 #' @param log Logical; if TRUE, return the log-density
 #' @return The gamma PDF value at x, or ln(PDF) if log = TRUE
-#' @export
-z_dgamma_rs <- function(x, shape, rate, log) .Call(wrap__z_dgamma_rs, x, shape, rate, log)
+#' @keywords internal
+dgamma_rs <- function(x, shape, rate, log) .Call(wrap__dgamma_r, x, shape, rate, log)
 
+#' Internal Gamma CDF Engine
+#'
+#' @description
 #' Compute the gamma CDF: P(X <= x) for X ~ Gamma(shape, rate).
 #'
 #' Dispatches to `lower_gamma_series` (Taylor series for P) when the
@@ -292,73 +347,106 @@ z_dgamma_rs <- function(x, shape, rate, log) .Call(wrap__z_dgamma_rs, x, shape, 
 #' @param shape The shape parameter (α > 0)
 #' @param rate The rate parameter (β > 0)
 #' @return The cumulative probability P(X ≤ x | α, β)
-#' @export
-z_pgamma_rs <- function(x, shape, rate, lower_tail, log_p) .Call(wrap__z_pgamma_rs, x, shape, rate, lower_tail, log_p)
-
-#' Computing the Tweedie PDF (compound Poisson-Gamma)
-#' Internal Rust engine for the Tweedie density.
-#' Assumes all inputs (y, mu, phi, power) have been pre-validated by the R wrapper.
-#' - `y < 0` is not handled here (should be blocked by R).
-#' - Automatically routes exact zeros to point-mass fast paths.
-#' - Uses the Dunn & Smyth (2005) series expansion for y > 0.
-z_dtweedie_rs <- function(y, mu, phi, power, log) .Call(wrap__z_dtweedie_rs, y, mu, phi, power, log)
-
-#' Computing the Tweedie CDF (compound Poisson-Gamma)
-#' Internal Rust engine for the Tweedie cumulative distribution.
-#' Assumes all inputs (y, mu, phi, power) have been pre-validated by the R wrapper.
-#' - `y < 0` is not handled here (should be blocked by R).
-#' - Automatically routes exact zeros to point-mass fast paths.
-#' - Uses the Dunn & Smyth (2005) series expansion for y > 0.
-#' - Supports `lower_tail` and `log_p` evaluation.
-z_ptweedie_rs <- function(y, mu, phi, power, lower_tail, log_p) .Call(wrap__z_ptweedie_rs, y, mu, phi, power, lower_tail, log_p)
-
-#' Computes the Inverse Gaussian probability density function (PDF).
-#' Internal Rust engine for `statz`.
-#' Assumes parameters (mu, lambda) are strictly positive.
-#' - Returns 0.0 (or -Inf in log space) for y <= 0 or y -> Inf.
-#' - Evaluates natively in log space to ensure maximum likelihood stability.
-z_dinvgauss_rs <- function(y, mu, lambda, log) .Call(wrap__z_dinvgauss_rs, y, mu, lambda, log)
-
-#' Computes the Inverse Gaussian cumulative distribution function (CDF).
-#' Internal Rust engine for `statz`.
-#' Assumes parameters (mu, lambda) are strictly positive.
-#' - Utilizes `libm::erfc` via the standard normal CDF for full machine precision in extreme tails.
-#' - Implements a structural overflow brake for extreme parameterisations (2λ/μ > 709).
-z_pinvgauss_rs <- function(y, mu, lambda, lower_tail, log_p) .Call(wrap__z_pinvgauss_rs, y, mu, lambda, lower_tail, log_p)
-
-#' Internal Cholesky solver wrapper handling R <-> Rust type translation 
-#' bridging extendr interface with R and internal Rust-level faer types.
-#'
-#' Dispatches the numeric design matrix and response vector to the Rust 
-#' Cholesky engine. Returns a list containing coefficients, standard errors, 
-#' fitted values, residuals, residual degrees of freedom, and residual 
-#' standard deviation.
-#'
-#' @export
 #' @keywords internal
-z_lm_chol <- function(x, y) .Call(wrap__z_lm_chol, x, y)
+pgamma_rs <- function(x, shape, rate, lower_tail, log_p) .Call(wrap__pgamma_r, x, shape, rate, lower_tail, log_p)
 
-#' Dispatches the numeric design matrix and response vector to the Rust 
-#' QR decomposition-based OLS engine. Returns a list containing coefficients,
-#' standard errors, fitted values, residuals, residual degrees of freedom,
-#' and residual standard deviation
-#' 
+#' Compute the Tweedie probability density function
+#'
+#' @description
+#' Computes the density for a Tweedie random variable using the
+#' Dunn & Smyth (2005) series expansion. Parameterised strictly for
+#' the compound Poisson-gamma case (1 < p < 2).
+#'
+#' @param y A numeric (double) vector of quantiles (y >= 0).
+#' @param mu The mean parameter (μ >= 0).
+#' @param phi The dispersion parameter (φ > 0).
+#' @param power The variance power parameter (1 < p < 2).
+#' @param log Logical; if TRUE, probabilities p are given as ln(p).
+#' @return A numeric vector of probability densities.
 #' @export
+dtweedie <- function(y, mu, phi, power, log = FALSE) .Call(wrap__dtweedie_r, y, mu, phi, power, log)
+
+#' Compute the Tweedie cumulative distribution function
+#'
+#' @description
+#' Computes the cumulative probability for a Tweedie random variable using the
+#' Dunn & Smyth (2005) series expansion. Parameterised strictly for
+#' the compound Poisson-gamma case (1 < p < 2).
+#'
+#' @param y A numeric (double) vector of quantiles (y >= 0).
+#' @param mu The mean parameter (μ >= 0).
+#' @param phi The dispersion parameter (φ > 0).
+#' @param power The variance power parameter (1 < p < 2).
+#' @param lower_tail Logical; if TRUE (default), probabilities are P(Y <= y).
+#' @param log_p Logical; if TRUE, probabilities p are given as ln(p).
+#' @return A numeric vector of cumulative probabilities.
+#' @export
+ptweedie <- function(y, mu, phi, power, lower_tail = TRUE, log_p = FALSE) .Call(wrap__ptweedie_r, y, mu, phi, power, lower_tail, log_p)
+
+#' Compute the Inverse Gaussian probability density function
+#'
+#' @description
+#' Evaluated natively in log-space for maximum numerical stability.
+#'
+#' @param y A numeric (double) vector of quantiles (y > 0).
+#' @param mu The mean parameter (μ > 0).
+#' @param lambda The shape parameter (λ > 0).
+#' @param log Logical; if TRUE, probabilities p are given as ln(p).
+#' @return A numeric vector of probability densities.
+#' @export
+dinvgauss <- function(y, mu = 1, lambda = NULL, log = FALSE) .Call(wrap__dinvgauss_r, y, mu, lambda, log)
+
+#' Compute the Inverse Gaussian cumulative distribution function
+#'
+#' @description
+#' Utilizes the standard normal CDF for full machine precision in extreme tails,
+#' featuring a structural overflow brake for extreme parameterisations.
+#'
+#' @param y A numeric (double) vector of quantiles (y > 0).
+#' @param mu The mean parameter (μ > 0).
+#' @param lambda The shape parameter (λ > 0).
+#' @param lower_tail Logical; if TRUE (default), probabilities are P(Y <= y).
+#' @param log_p Logical; if TRUE, probabilities p are given as ln(p).
+#' @return A numeric vector of cumulative probabilities.
+#' @export
+pinvgauss <- function(y, mu = 1, lambda = NULL, lower_tail = TRUE, log_p = FALSE) .Call(wrap__pinvgauss_r, y, mu, lambda, lower_tail, log_p)
+
+#' Internal OLS solver
+#'
+#' @description
+#' Handles R <-> Rust FFI translation and engine dispatching for
+#' OLS linear modelling.
+#'
+#' @param x A numeric design matrix.
+#' @param y A numeric response vector
+#' @param engine A character string specifying the backend ("cholesky" or "qr").
+#' @return A list containing coefficients, standard errors, fitted values,
+#'   residuals, residual degrees of freedom, and residual standard deviation.
+#'
 #' @keywords internal
-z_lm_qr <- function(x, y) .Call(wrap__z_lm_qr, x, y)
+lm_rs <- function(x, y, engine) .Call(wrap__lm_r, x, y, engine)
 
-#' An R interface to Eigendecomposition performed by `faer` in Rust. 
-#' Essentially replicates `base::eigen()` for symmetric matrices but 
-#' using the Rust-native `faer` utilities instead of LAPACK.
-#' 
+#' Eigendecomposition via `faer`
+#'
+#' @description
+#' Replicates `base::eigen()` for symmetric matrices, providing an interface to
+#' the Rust-native `faer` library instead of LAPACK.
+#'
+#' @param x A numeric symmetric matrix
+#' @return A list containig the eigenvalues (`values`) and eigenvectors (`vectors`).
 #' @export
-z_eigen <- function(x) .Call(wrap__z_eigen, x)
+eigen <- function(x) .Call(wrap__eigen, x)
 
-#' An R interface to Singular Value Decomposition performed by `faer` in Rust.
-#' Essentially replicates `base::svd()` but using the Rust-native 
-#' `faer` utilities instead of LAPACK.
-#' 
+#' Singular Value Decomposition via faer
+#'
+#' @description
+#' Replicates `base::svd()`, providing an interface to the Rust-native `faer` library
+#' instead of LAPACK.
+#'
+#' @param x A numeric matrix.
+#' @return A list containing the singular values (`d`), left singular vectors (`u`),
+#'   and right singular vectors (`v`).
 #' @export
-z_svd <- function(x) .Call(wrap__z_svd, x)
+svd <- function(x) .Call(wrap__svd, x)
 
 # nolint end

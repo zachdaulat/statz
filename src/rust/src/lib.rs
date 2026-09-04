@@ -3,6 +3,7 @@ use extendr_api::prelude::*;
 // Module declarations
 mod archive;
 mod causal;
+mod consts;
 mod descriptive;
 mod distributions;
 mod linear_models;

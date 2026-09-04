@@ -41,28 +41,39 @@ This is an in-development project intended to be a structured and focused but ex
 
 ## Architecture
 
-The package follows a two-layer architecture. Following the same strategy as base R and R packages that use C/C++ or Fortran backends, `statz` delegates numerical computation to a compiled language. R provides the user-facing wrapper functions with input validation, documentation, and interfaces similar to base R and the native `stats` package (`distributions.R`), with numerical computation handled by compiled Rust code (`distributions.rs`, `descriptive.rs`). The `extendr` / `rextendr` toolchain bridges the two layers via R's C foreign function interface, compiling the Rust source into a shared library that R loads at runtime.
+The package follows a two-layer architecture. Following the same strategy as base R and R packages that use C/C++ or Fortran backends, `statz` delegates numerical computation to a compiled language. Most of the mathematical functions are implemented purely in Rust and exported directly into the R namespace. R wrapper functions handle S3 method construction, dual-parameterizations (e.g., `dgamma()`), and interfacing with modelling engines (e.g., `dsc()`). The `extendr` / `rextendr` toolchain bridges the two layers via R's C foreign function interface, compiling the Rust source into a shared library that R loads at runtime.
 
 ```
 statz/
 ├── src/rust/src/
-│   ├── lib.rs                # Module declarations and extendr registration
-│   ├── descriptive.rs        # Descriptive statistics (Rust)
-│   └── distributions.rs      # Probability distributions (Rust)
+│   ├── lib.rs                # Module declarations and root extendr registration
+│   ├── archive.rs            # Archived deprecated implementations
+│   ├── causal.rs             # Causal inference methods
+│   ├── consts.rs             # Constant definitions
+│   ├── descriptive.rs        # Descriptive statistics
+│   ├── distributions.rs      # Probability distributions
+│   └── linear_models.rs      # OLS engines and matrix decompositions
 ├── R/
-│   └── distributions.R       # R wrappers with validation and documentation
+│   ├── causal.R              # Modelling interfacing and S3 methods
+│   ├── distributions.R       # Minimal R wrappers dual parameterizations
+│   └── linear_models.R       # R wrappers with formula parsing
 ├── tests/testthat/
-│   └── test-distributions.R  # R-level tests 
+│   ├── test-causal.R         # R-layer tests
+│   ├── test-descriptive.R
+│   ├── test-distributions.R
+│   └── test-linear-models.R
 └── ...
 ```
 
 ## Design Choices
 
-Currently the most significant interface departure from the R-native implementations is that the distribution functions are not yet vectorised. The descriptive statistics functions (`z_mean()`, `z_cor()`, etc.) are, but I decided against vectorising the distributions for now to focus on learning their respective PDFs/PMF and CDFs and the numerical methods. I may vectorise them eventually as an exercise in learning Rust's ownership system and borrow checker, zero-allocation iterator techniques, and memory safety; potentially useful prep for the OLS and GLM implementations planned in parts 3 and 4.
+Default arguments and parameter boundary safety checks (like rejecting negative variances) are often handled directly in the Rust layer using the `#[extendr(default = "...")]` macro. The FFI boundary explicitly handles R's `NA_real_` and IEEE `NaN` propagations before processing the math.
 
-Functions annotated with the `#[extendr]` attribute are exported to R via the `extendr_module!` macro. Most internal helper functions like `lower_gamma_series()` and `upper_gamma_cf()` use `pub(crate)` to remain accessible within the Rust crate but are hidden from R. Most of the functions like `z_pgamma_rs()` flagged with a suffix (usually `*_rs()`) are the exported Rust function, and have an associated R wrapper like `z_pgamma()` that adds input validation and parameterisation options. The exported Rust functions are usually not intended to be called directly by a user.
+Functions annotated with the `#[extendr]` attribute are exported to R. A select few internal Rust functions (like `dgamma_rs` and `lm_rs`) are exposed to R strictly for R wrappers to call. Most internal mathematical helpers like `upper_gamma_cf()`, `log_sum_exp()`, and `dtweedie_series()`, use `pub(crate)` and remain hidden from the R layer. 
 
-The initial implementation prioritises the core analytical functions (`d*` and `p*`) over quantile (`q*`) and random generation (`r*`) functions to maintain a focused pedagogical scope.
+**Archive & Constants Modules:** To preserve my pedagogical learning path, early or superseded implementations of algorithms—like a non-Neumaier summation function, an Abramowitz & Stegun error function approximation (`pnorm_as`), and Godfrey's Lanczos formulation (`lgamma_godfrey`)—are retained in a Rust `archive` module. These functions are deliberately excluded from the package's public namespace but remain accessible directly from R using the `:::` operator (e.g., `statz:::pnorm_as(1.96)`) for benchmarking and testing.
+
+The initial implementations prioritize the core distributional functions (`d*` and `p*`) over quantile (`q*`) and random generation (`r*`) functions to maintain a focused pedagogical scope.
 
 ## Installation
 
@@ -109,40 +120,40 @@ devtools::install()
 
 ### <a id="part-1"></a>Part 1 — Descriptive Statistics
 
-This first part of the project was intentionally brief. It served primarily as an introduction to Rust, the Rust-R bridge via `extendr`, and to set up the testing and build workflow. 
+This first part of the project was primarily an introduction to Rust, the Rust-R bridge via `extendr`, and setting up the testing and build workflow. 
 
-Basic sample statistics implemented in Rust, using Bessel's correction (*n* − 1 denominator) for the sample variance and standard deviation to match R's `var()` and `sd()`.
+Basic sample statistics are implemented entirely in Rust. To maximize numerical stability, aggregations use the Neumaier summation algorithm to track truncated floating-point bits. The variance and covariance estimators use Welford's online algorithm to calculate running deviations in a single pass, avoiding the catastrophic cancellation risks in the naïve textbook formulas.
 
 | Function | Description |
 |---|---|
-| `z_sum(x)` | Sum of a numeric vector |
-| `z_mean(x)` | Arithmetic mean |
-| `z_median(x)` | Median (sorts internally) |
-| `z_var(x)` | Sample variance (Bessel-corrected) |
-| `z_sd(x)` | Sample standard deviation |
-| `z_cov(x, y)` | Sample covariance |
-| `z_cor(x, y)` | Pearson correlation coefficient |
-| `z_cor_onepass(x, y)` | Pearson correlation, single-pass Welford-style accumulation |
+| `sum(x)` | Sum of a numeric vector via Neumaier summation |
+| `mean(x)` | Arithmetic mean via Neumaier summation |
+| `median(x)` | Median via Quickselect/Hoare's algorithm sorting |
+| `var(x)` | Sample variance (Bessel-corrected, Welford's algorithm) |
+| `sd(x)` | Sample standard deviation |
+| `cov(x, y)` | Sample covariance |
+| `cor(x, y)` | Pearson correlation coefficient |
+| `quantile(x, probs)` | Sample quantiles (R's continuous type 7 method) |
 
 ### <a id="part-2"></a>Part 2 — Probability Distributions
 
-Following R’s standard naming convention, the package implements density/mass and cumulative probability distribution functions using the `d*` (density/mass) and `p*` (CDF) prefixes. R wrappers provide input validation and, where applicable, dual parameterisation (e.g., `rate` and `scale` for the gamma distribution). All density/mass computations use log-space arithmetic to avoid overflow.
+Following R’s standard naming convention, the package implements density/mass and cumulative probability distribution functions using the `d*` and `p*` prefixes. With the exception of `dgamma` and `pgamma` which retain R wrappers to parse `rate` and `scale` dual parameterization, all distributions evaluate directly at the FFI boundary with default arguments handled by `extendr`. All density/mass computations use log-space arithmetic to avoid overflow.
 
-The probability density/mass functions also accept a `log` argument to return the log-density/log-probability directly, and the CDF functions accept a `log.p` argument to return cumulative log-probabilities. The CDF functions also accept a `lower.tail` argument; the default is `TRUE`, and the upper tail probability is returned when `FALSE`.
+The probability density/mass functions accept a `log` argument to return the log-density/log-probability directly, and the CDF functions accept a `log_p` argument to return cumulative log-probabilities. The CDF functions also accept a `lower_tail` argument; the default is `TRUE`, and the upper tail probability is returned when `FALSE`.
 
 | Function | Description | Method |
 |----------|-------------|-----------|
-| `z_dnorm(x, mean, sd)` | Normal PDF | Log-space: $-\ln\sigma - \frac{1}{2}\ln(2\pi) - \frac{z^2}{2}$ |
-| `z_pnorm(x, mean, sd)` | Normal CDF | `libm::erfc()`-based for deep tails: $\frac{1}{2}\text{erfc}(-z/\sqrt{2})$ |
-| `z_dpois(x, lambda)` | Poisson PMF | Log-space: $x \ln\lambda - \lambda - \sum_{i=1}^{x}\ln i$ |
-| `z_ppois(x, lambda)` | Poisson CDF | Recurrence relation: $P(X = k) = P(X = k-1) \cdot \lambda/k$ |
-| `z_lgamma(z)` | $\ln\Gamma(z)$ | Boost.Math Lanczos adaptation (see below) |
-| `z_dgamma(x, shape, rate, scale)` | Gamma PDF | Log-space using `z_lgamma()` for the $\ln\Gamma(\alpha)$ term |
-| `z_pgamma(x, shape, rate, scale)` | Gamma CDF | Regularised incomplete gamma function (see below) |
-| `z_dinvgauss(y, mu, lambda)` | Inverse Gaussian PDF | Log-space: $\frac{1}{2}\ln\lambda-\frac{1}{2}\ln(2\pi)-\frac{3}{2}\ln y-\frac{\lambda(y-\mu)^2}{2\mu^2y}$ |
-| `z_pinvgauss(y, mu, lambda)` | Inverse Gaussian CDF | `libm::erfc()`-based normal CDF; $\Phi(z_1) + \exp\left(\frac{2\lambda}{\mu}\right) \Phi(z_2)$ |
-| `z_dtweedie(y, mu, phi, power)` | Tweedie PDF ($1 < p < 2$) | Dunn & Smyth (2005) series expansion; log-sum-exp trick with hill-climbing |
-| `z_ptweedie(y, mu, phi, power)` | Tweedie CDF ($1 < p < 2$) | Linear accumulation of Poisson-weighted gamma probabilities |
+| `dnorm(x, mean, sd)` | Normal PDF | Log-space: $-\ln\sigma - \frac{1}{2}\ln(2\pi) - \frac{z^2}{2}$ |
+| `pnorm(x, mean, sd)` | Normal CDF | `libm::erfc()`-based for deep tails: $\frac{1}{2}\text{erfc}(-z/\sqrt{2})$ |
+| `dpois(x, lambda)` | Poisson PMF | Log-space: $x \ln\lambda - \lambda - \sum_{i=1}^{x}\ln i$ |
+| `ppois(x, lambda)` | Poisson CDF | Recurrence relation: $P(X = k) = P(X = k-1) \cdot \lambda/k$ |
+| `lgamma(z)` | $\ln\Gamma(z)$ | Boost.Math Lanczos adaptation (see below) |
+| `dgamma(x, shape, rate, scale)` | Gamma PDF | Log-space using `lgamma()` for the $\ln\Gamma(\alpha)$ term |
+| `pgamma(x, shape, rate, scale)` | Gamma CDF | Regularised incomplete gamma function (see below) |
+| `dinvgauss(y, mu, lambda)` | Inverse Gaussian PDF | Log-space: $\frac{1}{2}\ln\lambda-\frac{1}{2}\ln(2\pi)-\frac{3}{2}\ln y-\frac{\lambda(y-\mu)^2}{2\mu^2y}$ |
+| `pinvgauss(y, mu, lambda)` | Inverse Gaussian CDF | `libm::erfc()`-based normal CDF; $\Phi(z_1) + \exp\left(\frac{2\lambda}{\mu}\right) \Phi(z_2)$ |
+| `dtweedie(y, mu, phi, power)` | Tweedie PDF ($1 < p < 2$) | Dunn & Smyth (2005) series expansion; log-sum-exp trick with hill-climbing |
+| `ptweedie(y, mu, phi, power)` | Tweedie CDF ($1 < p < 2$) | Linear accumulation of Poisson-weighted gamma probabilities |
 
 The Poisson CDF upper-tail implementation currently computes $1 - P$, and therefore loses precision when $P$ is near 1. This is a pedagogical simplification for now. The Normal, Gamma, Inverse Gaussian, and Tweedie CDFs each evaluate their respective upper tails directly, preserving near full machine precision deep into the right tails.
 
@@ -150,7 +161,7 @@ The gamma PDF and CDF provide dual parameterisation options through providing ei
 
 #### Normal Distribution
 
-`z_pnorm()` computes the normal cumulative probability $P(Z \le z)$ for $Z \sim N(0,1)$ from the lower tail via the complementary error function $\text{erfc}(x)$:
+`pnorm()` computes the normal cumulative probability $P(Z \le z)$ for $Z \sim N(0,1)$ from the lower tail via the complementary error function $\text{erfc}(x)$:
 
 $$
 \Phi(z) = \frac{1}{2} \text{erfc}\left(-\frac{z}{\sqrt{2}}\right)
@@ -158,23 +169,23 @@ $$
 
 An intermediate variable `u` is calculated from the z-score input before being passed into `libm::erfc()`. To compute the upper tail, the sign of `u` is flipped passing $u = z / \sqrt{2}$ instead.
 
-The complementary error function implementation used here is from the `libm` crate, a Rust port of C math libraries. Using this robust `erfc()` implementation enables a very simple internal structure for `z_pnorm_rs()` to compute from either tail of the normal CDF with nearly full significand precision even for exceedingly small probabilities at a magnitude of $10^{-89}$.
+The complementary error function implementation used here is from the `libm` crate, a Rust port of C math libraries. Using this robust `erfc()` implementation enables a very simple internal structure for `pnorm()` to compute from either tail of the normal CDF with nearly full significand precision even for exceedingly small probabilities (like down to $10^{-89}$).
 
-Note: This `libm::erfc()`-based implementation of the normal CDF is an update over my initial pedagogical version retained as `z_pnorm_as()`, which uses the Abramowitz & Stegun eq. 7.1.26 polynomial approximation of the error function. This update was motivated by the need for better tail precision for the Inverse Gaussian CDF, due to the A&S approximation's $|\epsilon(x)| \le 1.5 \times 10^{-7}$ maximum absolute error.
+Note: This `libm::erfc()`-based implementation of the normal CDF is an update over my initial pedagogical version retained as `pnorm_as()`, which uses the Abramowitz & Stegun eq. 7.1.26 polynomial approximation of the error function. This update was motivated by the need for better tail precision for the Inverse Gaussian CDF, due to the A&S approximation's $|\epsilon(x)| \le 1.5 \times 10^{-7}$ maximum absolute error.
 
 #### Poisson Distribution
 
-**PMF (`z_dpois`)**
+**PMF (`dpois`)**
 
 Computes the probability mass function $P(X = x | \lambda)$ using log-space arithmetic to avoid factorial overflow. The log-mass $x\ln\lambda - \lambda - \sum \ln i$ is computed directly and exponentiated only at the final step.
 
-**CDF (`z_ppois`)**
+**CDF (`ppois`)**
 
-Computes the cumulative probability for $X \sim \text{Poisson}(\lambda)$ by exploiting the recurrence relation $P(X = k) = P(X = k-1) \cdot \lambda / k$, accumulating the sum in a single pass without recomputing each PMF term independently. The package also retains the less efficient direct-iteration implementation (`z_ppois_di()`).
+Computes the cumulative probability for $X \sim \text{Poisson}(\lambda)$ by exploiting the recurrence relation $P(X = k) = P(X = k-1) \cdot \lambda / k$, accumulating the sum in a single pass without recomputing each PMF term independently. The package archives the less efficient direct-iteration implementation (`ppois_di()`).
 
 #### Gamma Distribution
 
-**Log-gamma (`z_lgamma`)** — via Lanczos Approximation
+**Log-gamma (`lgamma`)** — via Lanczos Approximation
 
 Computes $\ln\Gamma(z)$ using a simplified adaptation of the [Boost.Math C++ library](https://www.boost.org/doc/libs/latest/libs/math/doc/html/math_toolkit/lanczos.html)'s Lanczos approximation, drawing from the `lanczos.hpp` and `gamma.hpp` source files. It uses the `lanczos13m53` parameters tuned for `f64` arithmetic ($N = 13$, $G \approx 6.0247$).
 
@@ -184,7 +195,7 @@ $$
 \Gamma(z+1) = \sqrt{2\pi} \left( z + g + \frac{1}{2} \right)^{z+1/2} e^{-(z+g+1/2)} \sum_{k=0}^N \frac{c_k}{z+k}
 $$
 
-`z_lgamma()` evaluates a log-space adaptation of the Boost.Math formulation:
+`lgamma()` evaluates a log-space adaptation of the Boost.Math formulation:
 
 $$
 \ln \Gamma(z) = t \ln\left(t + g\right) - t + \ln L_{g,e}(z)
@@ -200,24 +211,24 @@ This implementation adapts the `lanczos13m53::lanczos_sum_expG_scaled` coefficie
 
 **Optimizations & Implementation Decisions**
 
-- **(Boost) Algorithmic stability:** The Lanczos sum $L_{g,e}(z)$, is evaluated as a ratio of two degree-12 polynomials $P(z)$ and $Q(z)$ using Horner's method with `.mul_add()` for FMA operations. This required the Boost authors to compute twice as many coefficient values for a given N, but all of the coefficients can now be positive instead of alternating positive and negative, avoiding catastrophic cancellation risks.
-- **(Boost) Precision simplification:** The Lanczos sum is not evaluated when the primary term (`lgam`) is so large that the addition would be entirely truncated anyway. The condition determining whether to evaluate it is `lgam * f64::EPSILON < 20.0`, the same condition found directly in the Boost.Math source `gamma.hpp`.
+- **(Boost) Algorithmic stability:** The Lanczos sum $L_{g,e}(z)$, is evaluated as a ratio of two degree-12 polynomials $P(z)$ and $Q(z)$ using Horner's method. This required the Boost authors to compute twice as many coefficient values for a given N, but all of the coefficients can now be positive instead of alternating positive and negative, avoiding catastrophic cancellation risks.
+- **(Boost) Precision simplification:** The Lanczos sum is not evaluated when the primary term (`lgam`) is so large that the addition would be entirely truncated anyway. The condition determining whether to evaluate it is `lgam * f64::EPSILON < 20.0` found in `gamma.hpp`.
 - **Whole number lookups:** I constructed a precomputed `LN_FACTORIALS` array storing $\ln(0!)$ to $\ln(15!)$ for small positive integer inputs ($\ln\Gamma(z)$ inputs $1 \le z \le 16$). The stored value is returned directly for these common cases, bypassing the Lanczos approximation.
 - **Root handling:** The Boost implementation uses Taylor series expansions for inputs near 1 and 2. I omitted this as a deliberate simplification at the expense of reduced precision near these inputs, although I might revisit this.
 
-The underlying Rust crate includes `z_lgamma_godfrey()`, which uses Paul Godfrey's traditional formulation (g = 7, N = 9) but suffers from cancellation risks in its alternating sign coefficients. This is retained internally as an initial pedagogical version before I wrote the Boost.Math adaptation with its more robust rational polynomial approach.
+The `archive` module includes `lgamma_godfrey()`, which uses Paul Godfrey's traditional formulation (g = 7, N = 9) but suffers from cancellation risks in its alternating sign coefficients. This is retained internally as an initial pedagogical version.
 
-**PDF (`z_dgamma`)**
+**PDF (`dgamma`)**
 
-Computes the probability density function $f(x | \alpha, \beta)$ via the shape-rate parameterisation in log-space with `z_lgamma()`:
+Computes the probability density function $f(x | \alpha, \beta)$ via the shape-rate parameterisation in log-space with `lgamma()`:
 
 $$\ln f(x) = \alpha \ln(\beta) - \ln \Gamma(\alpha) + (\alpha-1)\ln(x) - \beta x$$
 
-**CDF (`z_pgamma`)**
+**CDF (`pgamma`)**
 
 Computes the cumulative probability for $X \sim \text{Gamma}(\alpha, \beta)$ by approximating the regularised incomplete gamma functions. 
 
-`z_pgamma_rs()` dispatches between the two helper functions `lower_gamma_series()` and `upper_gamma_cf()` based on the domain boundary $z = \alpha + 1$ to directly compute the smaller of the two tails and avoid cancellation risks for probabilities near 1.
+`pgamma()` dispatches between the two helper functions `lower_gamma_series()` and `upper_gamma_cf()` based on the domain boundary $z = \alpha + 1$ to directly compute the smaller of the two tails and avoid cancellation risks for probabilities near 1.
 
 - **Series Expansion** ($z < \alpha + 1$): Evaluates a Taylor series to compute the lower-tail probability $P(\alpha, z)$.
 - **Continued Fraction** ($z \ge \alpha + 1$): Evaluates Legendre's continued fraction via the Modified Lentz Algorithm to compute the upper-tail probability $Q(\alpha, z)$.
@@ -228,7 +239,7 @@ The `lower_tail` boolean argument then determines whether the directly computed 
 
 Adding the Inverse Gaussian PDF and CDF was motivated by it representing the last remaining major case of the Tweedie family and its superior applicability for travel times and heavy-tailed data compared to the Gamma distribution.
 
-**PDF (`z_dinvgauss`)**
+**PDF (`dinvgauss`)**
 
 The probability density function $f(y | \mu, \lambda)$ is evaluated in log-space to ensure numerical stability in future MLE loops:
 
@@ -236,7 +247,7 @@ $$
 \ln f(y) = \frac{1}{2}\ln(\lambda) - \frac{1}{2}\ln(2\pi) - \frac{3}{2}\ln(y) - \frac{\lambda(y - \mu)^2}{2\mu^2y}
 $$
 
-**CDF (`z_pinvgauss`)**
+**CDF (`pinvgauss`)**
 
 Computes the cumulative probability for $Y \sim \text{IG}(\mu, \lambda)$, evaluated  through its relationship to the normal CDF with intermediate variables $z_1$ and $z_2$:
 
@@ -250,9 +261,9 @@ $$
 z_1 = \sqrt{\frac{\lambda}{y}} \left(\frac{y}{\mu} - 1\right), \quad z_2 = -\sqrt{\frac{\lambda}{y}} \left(\frac{y}{\mu} + 1\right)
 $$
 
-The absolute error magnification risk in the IG CDF correction term, with a very large exponential multiplying a very small normal CDF with a maximum absolute error magnitude $~10^{-7}$, motivated the need for the more precise `z_pnorm_std()` implementation using `libm::erfc()`. Even more extreme $\mu$ and $\lambda$ parameterisations that produce an overflowing exponential term are protected against by checking its log-space value against `f64::MAX.ln()`, and safely ignored if larger due to the correction term converging to 0 anyway via the shrinking normal CDF.
+The absolute error magnification risk in the IG CDF correction term, with a very large exponential multiplying a very small normal CDF with a maximum absolute error magnitude $~10^{-7}$, motivated the need for the more precise normal CDF implementation using `libm::erfc()`. Even more extreme $\mu$ and $\lambda$ parameterisations that produce an overflowing exponential term are protected against by checking its log-space value against `f64::MAX.ln()`, and safely ignored if larger due to the correction term converging to 0 anyway via the shrinking normal CDF.
 
-`z_pinvgauss_rs()` computes the lower or upper tail by passing the boolean to the first normal CDF term and whether the following correction term is subsequently added or subtracted. The lower tail evaluation is shown above and so the upper tail is as follows:
+`pinvgauss_rs()` computes the lower or upper tail by passing the boolean to the first normal CDF term and whether the following correction term is subsequently added or subtracted. The lower tail evaluation is shown above and so the upper tail is as follows:
 
 $$
 S(y) = \Phi_{upper}(z_1) - \exp\left(\frac{2\lambda}{\mu}\right) \Phi_{lower}(z_2)
@@ -266,7 +277,7 @@ This implementation covers the $1 < p < 2$ special case, the compound Poisson-ga
 
 Internal helper structs handle parameter conversions between the standard Tweedie parameters $(\mu, \phi, p)$ and the Poisson-gamma parameters $(\lambda, \alpha, \beta)$.
 
-**PDF (`z_dtweedie`)**
+**PDF (`dtweedie`)**
 
 Because the density $f(y | \lambda, \alpha, \beta)$ lacks a closed analytical form for $y > 0$, it is evaluated via the Dunn & Smyth (2005) infinite series expansion. The density is an infinite sum of Poisson-weighted gamma densities:
 
@@ -276,7 +287,7 @@ $$
 
 To handle the extreme dynamic range of the gamma densities across the series, all terms are computed in log-space. The algorithm begins with a hill-climbing search starting from $k = \lfloor\lambda\rfloor$ to locate the dominant term ($l_{\max}$). The series expands in both directions from this peak until terms drop below the machine-epsilon threshold relative to the maximum, and the accumulated log-terms are combined via a log-sum-exp evaluation. A fast-path point mass $e^{-\lambda}$ evaluates exactly $y = 0$.
 
-**CDF (`z_ptweedie`)**
+**CDF (`ptweedie`)**
 
 The cumulative distribution function $F(y)$ decomposes into the Poisson mass at zero plus the sum of Poisson-weighted Gamma cumulative probabilities:
 
@@ -286,28 +297,32 @@ $$
 
 Where $G$ represents the regularised incomplete gamma function. Because each term is the product of a Poisson probability and a Gamma CDF and both are strictly bounded in $[0, 1]$, the series is safely accumulated in direct linear space, avoiding the dynamic range complexities of the density.
 
-The `lower_tail` argument is passed directly through to the underlying `z_pgamma_rs()` calls. Because `z_pgamma_rs()` dispatches between a Taylor series and Legendre's continued fraction based on the $z = \alpha + 1$ domain boundary to maximize precision, passing the tail flag down ensures the upper tail is computed securely without naively evaluating $1 - F(y)$ when $F(y)$ is close to 1.
+The `lower_tail` argument is passed directly through to the underlying `pgamma()` calls. Because `pgamma()` dispatches between a Taylor series and Legendre's continued fraction based on the $z = \alpha + 1$ domain boundary to maximize precision, passing the tail flag down ensures the upper tail is computed securely without naïvely evaluating $1 - F(y)$ when $F(y)$ is close to 1.
 
-### <a id="part-3"></a>Part 3 — Linear Models (`z_lm()`)
+### <a id="part-3"></a>Part 3 — Linear Models (`lm()`)
 
-Three implementations of ordinary least squares regression, progressively improving in numerical stability as I learn linear algebra:
+This module is a pedagogical implementation of OLS methods. The `statz::lm()` R layer handles model matrix generation and formula parsing before dispatchijng the data to the Rust FFI. The method used is set by a string argument.
 
-1. **Naïve normal equations:** $(X^TX)^{-1}X^Ty$ — expected to fail on the NIST Filip dataset
-2. **QR decomposition:** To replicate R's own `lm()` implementation
-3. **SVD:** Performance-stability tradeoff and pedagogical exercise
+The Rust layer dispatcher matches the supplied string to the chosen matrix decomposition method:
 
-I also have a three-tier testing strategy in mind:
+- **Cholesky factorization (`"cholesky"`):** Solves the normal equations $(X^TX)^{-1}X^Ty$.
+- **QR decomposition (`"qr"`):** Solevs the least squares problem $R\theta = Q^Ty$. Slower but better numerical stability.
+
+In addition to the `lm()` wrapper, this module exposes interfaces to `faer` linear algebra utilities and routines.
+
+| Function | Description |
+|---|---|
+| `lm(formula, data, engine)` | OLS linear regression evaluated via Cholesky or QR factorization |
+| `eigen(x)` | Eigendecomposition interface for symmetric matrices returning values and vectors |
+| `svd(x)` | Singular Value Decomposition interface returning singular values and the $U$ and $V$ vectors |
+
+I have a three-tier testing strategy in mind for future reporting:
 
 - Baseline correctness: palmerpenguins dataset + simple exact cases
 - Numerical stability: NIST Filip dataset
 - Scalability: Statistics Canada Census PUMF
 
 This will be benchmarked against R's native `stats::lm()` and possibly Python OLS implementations like from `statsmodels` and `sklearn`.
-
-OLS engines completed:
-
-- Cholesky factorisation of normal equation (`z_lm_chol()`)
-- QR factorisation (`z_lm_qr()`)
 
 ### <a id="part-4"></a>Part 4 — Causal Inference
 
@@ -378,7 +393,7 @@ Because the adjustment methods are implicit or applied prior to the matrix multi
 
 **Differences from DiSCo**
 
-First, `z_dsc()` minimizes one *pooled* objective across all temporal buckets for a single shared weight vector, whereas `DiSCo` fits weights per period and averages them after. Second, the L2 penalty was added to stabilize weights between highly collinear donors instead of their split being driven by noise. Third, the parameter $\alpha$ shifts the barycenter toward the treated distribution to focus the donor pool weights on matching the shape separate from the means.
+First, `dsc()` minimizes one *pooled* objective across all temporal buckets for a single shared weight vector, whereas `DiSCo` fits weights per period and averages them after. Second, the L2 penalty was added to stabilize weights between highly collinear donors instead of their split being driven by noise. Third, the parameter $\alpha$ shifts the barycenter toward the treated distribution to focus the donor pool weights on matching the shape separate from the means.
 
 The optimizer's correctness is cross-validated in the test suite against the quadratic-programming solver `quadprog::solve.QP()`, confirming the projected-gradient solution matches with QP solution within numerical tolerance.
 
@@ -388,7 +403,7 @@ The linear algebra implementations in parts 3 and 4 will use the [`faer`](https:
 
 ### <a id="part-5"></a>Parts 5+ — Generalized Linear Models & Spatial Statistics
 
-Generalized Linear Model (`z_glm()`) IRLS fitting for:
+Generalized Linear Model (`glm()`) IRLS fitting for:
 
 - Gaussian
 - Poisson
@@ -404,7 +419,7 @@ Note: I anticipate the IRLS solver development will prioritise the Inverse Gauss
      - Working weights and working responses
      - Deviance residuals
      - Dispersion parameter estimation
-     - Connection to Module 2 (King Street DiD): the z_glm() with gamma family will be used for travel time reliability modelling
+     - Connection to Module 2 (King Street DiD): the glm() with gamma family will be used for travel time reliability modelling
 -->
 
 Difference-in-differences estimation, spatial weight matrices, and spatial econometrics tools.
@@ -418,35 +433,35 @@ The package uses a dual-layer testing strategy:
 
 ### Notable Tests
 
-All of the reference values used in extreme case precision checks like the `z_pnorm` deep tail sigfig test were generated from WolframAlpha. The tests are also not comprehensive, domain-wide validations of the whole parameter spaces.
+All of the reference values used in extreme case precision checks like the `pnorm` deep tail sigfig test were generated from WolframAlpha. The tests are also not comprehensive, domain-wide validations of the whole parameter spaces.
 
-**`z_pnorm` — Deep tail significand preservation**: Verifies that the updated normal CDF implementation using `libm::erfc()` maintains relative precision in the extreme tails. The probability at $z = -20$ at a magnitude of $~10^{-89}$ maintains accuracy to $10^{-13}$ relative error. 
+**`pnorm` — Deep tail significand preservation**: Verifies that the updated normal CDF implementation using `libm::erfc()` maintains relative precision in the extreme tails. The probability at $z = -20$ at a magnitude of $~10^{-89}$ maintains accuracy to $10^{-13}$ relative error. 
 
-**`z_lgamma` — WolframAlpha benchmarks**: Known values computed via `N[Log[Gamma[z]], 25]` in WolframAlpha, verified to $10^{-15}$ tolerance (near full f64 precision). Includes integer, half-integer, and arbitrary real inputs.
+**`lgamma` — WolframAlpha benchmarks**: Known values computed via `N[Log[Gamma[z]], 25]` in WolframAlpha, verified to $10^{-15}$ tolerance (near full f64 precision). Includes integer, half-integer, and arbitrary real inputs.
 
-**`z_lgamma` — Reflection formula identity**: Verifies the functional equation $\ln\Gamma(z) + \ln\Gamma(1 - z) = \ln\pi - \ln|\sin(\pi z)|$ to $10^{-15}$, confirming that the reflection branch and the main branch produce mutually consistent results.
+**`lgamma` — Reflection formula identity**: Verifies the functional equation $\ln\Gamma(z) + \ln\Gamma(1 - z) = \ln\pi - \ln|\sin(\pi z)|$ to $10^{-15}$, confirming that the reflection branch and the main branch produce mutually consistent results.
 
-**`z_lgamma` — Smoothness across lookup table boundary**: Computes left and right numerical derivatives at $z = 3.0$ (a whole number boundary of the `LN_FACTORIALS` precomputed table) and verifies the slopes agree, confirming continuous differentiability. Critical for the solver in the planned GLM phase.
+**`lgamma` — Smoothness across lookup table boundary**: Computes left and right numerical derivatives at $z = 3.0$ (a whole number boundary of the `LN_FACTORIALS` precomputed table) and verifies the slopes agree, confirming continuous differentiability. Critical for the solver in the planned GLM phase.
 
-**`z_lgamma` — Extreme tails**: Tests inputs at $z = 10^{-100}$ and $z = 10^{100}$, verifying finite, non-NaN results.
+**`lgamma` — Extreme tails**: Tests inputs at $z = 10^{-100}$ and $z = 10^{100}$, verifying finite, non-NaN results.
 
-**`z_pgamma` — PDF–CDF consistency**: Computes the numerical derivative of the CDF at a point and verifies it matches the analytical PDF from `z_dgamma()`, confirming the fundamental theorem of calculus relationship $f(x) = F'(x)$ holds across the two independent implementations.
+**`pgamma` — PDF–CDF consistency**: Computes the numerical derivative of the CDF at a point and verifies it matches the analytical PDF from `dgamma()`, confirming the fundamental theorem of calculus relationship $f(x) = F'(x)$ holds across the two independent implementations.
 
-**`z_pgamma` — Exponential special case**: Since Gamma(1, β) is the Exponential(β) distribution, the CDF has a closed-form solution $1 - e^{-\beta x}$, providing an exact analytical check across multiple $x$ values.
+**`pgamma` — Exponential special case**: Since Gamma(1, β) is the Exponential(β) distribution, the CDF has a closed-form solution $1 - e^{-\beta x}$, providing an exact analytical check across multiple $x$ values.
 
-**`z_dgamma` — Riemann integration**: A brute-force numerical integration of the PDF over [0.001, 20] with dx = 0.001 verifies the density integrates to approximately 1. A basic sanity check that the normalisation is correct.
+**`dgamma` — Riemann integration**: A brute-force numerical integration of the PDF over [0.001, 20] with dx = 0.001 verifies the density integrates to approximately 1. A basic sanity check that the normalisation is correct.
 
-**`z_lgamma_godfrey` — Cross-validation**: The Godfrey and Boost implementations are compared across a range of inputs, verifying agreement to $10^{-12}$ and confirming that two independent formulations of the Lanczos approximation converge to the same values.
+**`lgamma_godfrey` — Cross-validation**: The Godfrey and Boost implementations are compared across a range of inputs, verifying agreement to $10^{-12}$ and confirming that two independent formulations of the Lanczos approximation converge to the same values.
 
-**`z_pinvgauss` - Extreme parameter safety**: Tests the correction term safety check with an aggressive exponential parameterisation ($\frac{2\lambda}{\mu} = 1000$).
+**`pinvgauss` - Extreme parameter safety**: Tests the correction term safety check with an aggressive exponential parameterisation ($\frac{2\lambda}{\mu} = 1000$).
 
-**`z_dtweedie` & `z_ptweedie` — PDF/CDF numerical consistency**: Computes the central-difference numerical derivative of the CDF and verifies it matches the independently computed PDF. Agreement to $10^{-4}$ cross-validates two independent infinite series implementations (density via log-sum-exp vs. CDF via direct accumulation).
+**`dtweedie` & `ptweedie` — PDF/CDF numerical consistency**: Computes the central-difference numerical derivative of the CDF and verifies it matches the independently computed PDF. Agreement to $10^{-4}$ cross-validates two independent infinite series implementations (density via log-sum-exp vs. CDF via direct accumulation).
 
-**`z_ptweedie` — Tail complementarity**: Verifies the mathematical invariant $F(y) + S(y) = 1.0$ to a tolerance of $10^{-14}$. This confirms that passing the tail-dispatch flag through to the underlying Poisson-weighted Gamma CDF series produces cohering tail results.
+**`ptweedie` — Tail complementarity**: Verifies the mathematical invariant $F(y) + S(y) = 1.0$ to a tolerance of $10^{-14}$. This confirms that passing the tail-dispatch flag through to the underlying Poisson-weighted Gamma CDF series produces cohering tail results.
 
 **R-Level CRAN Cross-Validation**: Some R wrappers are tested against established CRAN reference packages. The Inverse Gaussian implementations match `statmod::dinvgauss` and `statmod::pinvgauss` to $10^{-15}$ and $10^{-15}$, respectively, for the tested inputs. 
 
-The Tweedie density series implementation matches the `tweedie` package down to $10^{-10}$ for most of the $p$ space, and $10^{-14}$ near the Poisson boundary. The Tweedie CDF `z_ptweedie` matches `ptweedie` to $10^{-13}$ and $10^{-15}$ depending on the test.
+The Tweedie density series implementation matches the `tweedie` package down to $10^{-10}$ for most of the $p$ space, and $10^{-14}$ near the Poisson boundary. The Tweedie CDF `ptweedie` matches `ptweedie` to $10^{-13}$ and $10^{-15}$ depending on the test.
 
 <!-- ...proving mathematical soundness across extreme parameter spaces and independent algorithmic approaches (e.g., matching Dunn-Smyth series against Fourier inversion algorithms). -->
 

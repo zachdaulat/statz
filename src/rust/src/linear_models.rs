@@ -1,42 +1,52 @@
-use std::f64;
 use extendr_api::prelude::*;
 use faer::{
-    linalg::{solvers::{Llt, Solve, Qr, SolveLstsq, SelfAdjointEigen, Svd}, triangular_inverse::*},
     diag::DiagRef,
+    linalg::{
+        solvers::{Llt, Qr, SelfAdjointEigen, Solve, SolveLstsq, Svd},
+        triangular_inverse::*,
+    },
     mat::AsMatRef,
-    Col, ColRef, Mat, MatRef, Side, Par,
+    Col, ColRef, Mat, MatRef, Par, Side,
 };
+use std::f64;
 
 extendr_module! {
     mod linear_models;
-    fn z_lm_chol;
-    fn z_lm_qr;
-    fn z_eigen;
-    fn z_svd;
+    fn lm_r;
+    fn eigen;
+    fn svd;
 }
 
 // ------------ EXTENDR INTERFACES -------------
-// R-Rust Extendr interface function
-/// Internal Cholesky solver wrapper handling R <-> Rust type translation 
-/// bridging extendr interface with R and internal Rust-level faer types.
+/// Internal OLS solver
 ///
-/// Dispatches the numeric design matrix and response vector to the Rust 
-/// Cholesky engine. Returns a list containing coefficients, standard errors, 
-/// fitted values, residuals, residual degrees of freedom, and residual 
-/// standard deviation.
+/// @description
+/// Handles R <-> Rust FFI translation and engine dispatching for
+/// OLS linear modelling.
 ///
-/// @export
+/// @param x A numeric design matrix.
+/// @param y A numeric response vector
+/// @param engine A character string specifying the backend ("cholesky" or "qr").
+/// @return A list containing coefficients, standard errors, fitted values,
+///   residuals, residual degrees of freedom, and residual standard deviation.
+///
 /// @keywords internal
-#[extendr]
-pub fn z_lm_chol(x: RMatrix<f64>, y: Doubles) -> extendr_api::Result<List> {
-    // --- 1. Extract faer Ref views to R data
-    // Uses new faer Ext traits
+#[extendr(r_name = "lm_rs")]
+pub fn lm_r(x: RMatrix<f64>, y: Doubles, engine: &str) -> extendr_api::Result<List> {
+    // 1. Get faer ref views to R data
     let x_ref: MatRef<f64> = x.as_mat_ref();
     let y_ref: ColRef<f64> = y.as_col_ref();
 
-    // --- 2. Compute results
-    let result: LmResult = lm_chol(x_ref, y_ref).map_err(Error::Other)?;
+    // 2. Dispatch to correct Rust engine
+    #[rustfmt::skip]
+    let result: LmResult = match engine {
+        "cholesky" => lm_chol(x_ref, y_ref).map_err(Error::Other)?,
+        "qr"       => lm_qr(x_ref, y_ref).map_err(Error::Other)?,
+        "svd"      => return Err(Error::Other("SVD engine not yet implemented".into())),
+        _          => return Err(Error::Other("Invalid engine selection".into())),
+    };
 
+    // 3. Returning formatted list
     Ok(list!(
         coefficients = result.theta.iter().collect::<Doubles>(),
         std_errors = result.std_errors.iter().collect::<Doubles>(),
@@ -47,48 +57,20 @@ pub fn z_lm_chol(x: RMatrix<f64>, y: Doubles) -> extendr_api::Result<List> {
     ))
 }
 
-/// Dispatches the numeric design matrix and response vector to the Rust 
-/// QR decomposition-based OLS engine. Returns a list containing coefficients,
-/// standard errors, fitted values, residuals, residual degrees of freedom,
-/// and residual standard deviation
-/// 
-/// @export
-/// @keywords internal
-#[extendr]
-pub fn z_lm_qr(x: RMatrix<f64>, y: Doubles) -> extendr_api::Result<List> {
-    // --- 1. Extract faer Ref views to R data
-    // Uses new faer Ext traits
-    let x_ref: MatRef<f64> = x.as_mat_ref();
-    let y_ref: ColRef<f64> = y.as_col_ref();
-
-    // --- 2. Compute results
-    let result: LmResult = lm_qr(x_ref, y_ref).map_err(Error::Other)?;
-
-    Ok(list!(
-        coefficients = result.theta.iter().collect::<Doubles>(),
-        std_errors = result.std_errors.iter().collect::<Doubles>(),
-        fitted_values = result.fitted.iter().collect::<Doubles>(),
-        residuals = result.resid.iter().collect::<Doubles>(),
-        df_residual = result.df,
-        sigma = result.sigma
-    ))
-}
-
-// ------------ RUST ENGINES -------------------
-
-// Linear algebra interfaces in R to the `faer` implementations
-
-/// An R interface to Eigendecomposition performed by `faer` in Rust. 
-/// Essentially replicates `base::eigen()` for symmetric matrices but 
-/// using the Rust-native `faer` utilities instead of LAPACK.
-/// 
+/// Eigendecomposition via `faer`
+///
+/// @description
+/// Replicates `base::eigen()` for symmetric matrices, providing an interface to
+/// the Rust-native `faer` library instead of LAPACK.
+///
+/// @param x A numeric symmetric matrix
+/// @return A list containig the eigenvalues (`values`) and eigenvectors (`vectors`).
 /// @export
 #[extendr]
-pub fn z_eigen(x: RMatrix<f64>) -> extendr_api::Result<List> {
+pub fn eigen(x: RMatrix<f64>) -> extendr_api::Result<List> {
     // Instantiate eigendecomposition from RMatrix
-    let eigen: SelfAdjointEigen<f64> = SelfAdjointEigen::new(x.as_mat_ref(), faer::Side::Lower).map_err(|_| {
-        Error::Other("Error during eigendecomposition".into())
-    })?;
+    let eigen: SelfAdjointEigen<f64> = SelfAdjointEigen::new(x.as_mat_ref(), Side::Lower)
+        .map_err(|_| Error::Other("Error during eigendecomposition".into()))?;
 
     // Extracting views of the values and vectors from the eigendecomposition
     let eigenvalues: DiagRef<f64> = eigen.S();
@@ -101,17 +83,21 @@ pub fn z_eigen(x: RMatrix<f64>) -> extendr_api::Result<List> {
     ))
 }
 
-/// An R interface to Singular Value Decomposition performed by `faer` in Rust.
-/// Essentially replicates `base::svd()` but using the Rust-native 
-/// `faer` utilities instead of LAPACK.
-/// 
+/// Singular Value Decomposition via faer
+///
+/// @description
+/// Replicates `base::svd()`, providing an interface to the Rust-native `faer` library
+/// instead of LAPACK.
+///
+/// @param x A numeric matrix.
+/// @return A list containing the singular values (`d`), left singular vectors (`u`),
+///   and right singular vectors (`v`).
 /// @export
 #[extendr]
-pub fn z_svd(x: RMatrix<f64>) -> extendr_api::Result<List> {
+pub fn svd(x: RMatrix<f64>) -> extendr_api::Result<List> {
     // Instantiate singular value decomposition from RMatrix
-    let svd: Svd<f64> = Svd::new(x.as_mat_ref()).map_err(|_| {
-        Error::Other("Error during singular value decomposition".into())
-    })?;
+    let svd: Svd<f64> = Svd::new(x.as_mat_ref())
+        .map_err(|_| Error::Other("Error during singular value decomposition".into()))?;
 
     // Extracting views of the singular values and the U and V factors
     let singular_values: DiagRef<f64> = svd.S();
@@ -125,6 +111,8 @@ pub fn z_svd(x: RMatrix<f64>) -> extendr_api::Result<List> {
         v = v.as_rmatrix()
     ))
 }
+
+// ------------ RUST ENGINES -------------------
 
 // --- Rust structs standardiizng outputs
 // OLS Result struct
@@ -216,13 +204,11 @@ pub(crate) fn lm_qr(x_mat: MatRef<f64>, y_col: ColRef<f64>) -> Result<LmResult, 
     // diag((X'X)^{-1})[i] = sum over k of (R^{-1})[i,k]^2
     let std_errors: Col<f64> = (0..p)
         .map(|i| {
-            let row_norm_sq: f64 = (i..p)
-                .map(|k| r_inv[(i, k)].powi(2))
-                .sum();
+            let row_norm_sq: f64 = (i..p).map(|k| r_inv[(i, k)].powi(2)).sum();
             sigma * row_norm_sq.sqrt()
         })
         .collect::<Col<f64>>();
-    
+
     Ok(LmResult {
         theta,
         std_errors,
@@ -288,7 +274,7 @@ impl RMatrixExt for MatRef<'_, f64> {
         let ncols: usize = self.ncols();
 
         // Using new_matrix to dynamically allocate and populate the R matrix.
-        // It iterates over the dimensions, calling the closure to pull the 
+        // It iterates over the dimensions, calling the closure to pull the
         // (r, c) value from the faer MatRef
         RMatrix::new_matrix(nrows, ncols, |r, c| self[(r, c)])
     }
@@ -296,7 +282,7 @@ impl RMatrixExt for MatRef<'_, f64> {
 
 // impl RVectorExt for DiagRef<'_, f64> {
 //     fn as_doubles(&self) -> Doubles {
-        
+
 //     }
 // }
 
