@@ -77,9 +77,11 @@ pub fn mean(x: &[f64]) -> Option<f64> {
 /// Compute the median of a numeric vector.
 ///
 /// @description
-/// This function calculates the median of a numeric vector via the
-/// Quickselect/Hoare's selection algorithm. Achieves O(N) time complexity
-/// compared to O(N log N) full-sort approach.
+/// This function calculates the median of a numeric vector via an
+/// introselect implementation based on the "ipnsort" algorithm by
+/// Lukas Bergdoll and Orson Peters. The fallback algorithm is
+/// Median of Medians using Tukey’s Ninther. Guarantees linear
+/// runtime for all inputs compared to a O(N log N) full-sort.
 ///
 /// @param x A numeric (double) vector.
 /// @return The median as a double

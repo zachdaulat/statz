@@ -1154,7 +1154,7 @@ pub(crate) fn ptweedie_series(y: f64, lambda: f64, shape: f64, rate: f64, lower_
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::archive::arch_distributions::lgamma_godfrey;
+    use crate::archive::arch_distributions::arch_lgamma_godfrey;
 
     // --- dnorm tests ---
 
@@ -1442,7 +1442,7 @@ mod tests {
         let test_values = [0.1, 0.5, 1.0, 1.5, 2.0, 2.5, 5.0, 10.0, 50.0, 100.0];
         for z in test_values {
             let boost = lgamma(z);
-            let godfrey = lgamma_godfrey(z);
+            let godfrey = arch_lgamma_godfrey(z);
             assert!(
                 (boost - godfrey).abs() < 1e-12,
                 "Mismatch at z = {}: boost = {}, godfrey = {}",
@@ -1455,8 +1455,8 @@ mod tests {
 
     #[test]
     fn test_lgamma_godfrey_integers() {
-        assert!((lgamma_godfrey(1.0) - 0.0).abs() < 1e-14);
-        assert!((lgamma_godfrey(5.0) - 24.0_f64.ln()).abs() < 1e-13);
+        assert!((arch_lgamma_godfrey(1.0) - 0.0).abs() < 1e-14);
+        assert!((arch_lgamma_godfrey(5.0) - 24.0_f64.ln()).abs() < 1e-13);
     }
 
     // --- dgamma tests ---

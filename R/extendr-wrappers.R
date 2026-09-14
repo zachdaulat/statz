@@ -9,52 +9,52 @@ NULL
 #' @param x A numeric vector.
 #' @return The sum as a double.
 #' @keywords internal
-z_sum <- function(x) .Call(wrap__z_sum, x)
+arch_sum <- function(x) .Call(wrap__arch_sum, x)
 
 #' Compute the arithmetic mean of a numeric vector.
 #' @param x A numeric vector
 #' @return The mean as a double.
 #' @keywords internal
-z_mean <- function(x) .Call(wrap__z_mean, x)
+arch_mean <- function(x) .Call(wrap__arch_mean, x)
 
 #' Compute the median of a numeric vector.
 #' @param x A numeric vector.
 #' @return The median as a double
 #' @keywords internal
-z_median <- function(x) .Call(wrap__z_median, x)
+arch_median <- function(x) .Call(wrap__arch_median, x)
 
 #' Compute the sample variance of a numeric vector (Bessel-corrected, n-1).
 #' @param x A numeric vector.
 #' @return The sample variance as a double.
 #' @keywords internal
-z_var <- function(x) .Call(wrap__z_var, x)
+arch_var <- function(x) .Call(wrap__arch_var, x)
 
 #' Compute the sample standard deviation of a numeric vector.
 #' @param x A numeric vector.
 #' @return The sample standard deviation as a double.
 #' @keywords internal
-z_sd <- function(x) .Call(wrap__z_sd, x)
+arch_sd <- function(x) .Call(wrap__arch_sd, x)
 
 #' Compute the sample covariance of two numeric vectors.
 #' @param x A numeric vector.
 #' @param y A numeric vector of the same length.
 #' @return The sample covariance as a double.
 #' @keywords internal
-z_cov <- function(x, y) .Call(wrap__z_cov, x, y)
+arch_cov <- function(x, y) .Call(wrap__arch_cov, x, y)
 
 #' Compute the Pearson correlation coefficient of two numeric vectors.
 #' @param x A numeric vector.
 #' @param y A numeric vector.
 #' @return The sample correlation as a double
 #' @keywords internal
-z_cor <- function(x, y) .Call(wrap__z_cor, x, y)
+arch_cor <- function(x, y) .Call(wrap__arch_cor, x, y)
 
 #' Compute Pearson correlation coefficient, optimized single-pass
 #' @param x A numeric vector.
 #' @param y A numeric vector.
 #' @return The sample correlation as a double
 #' @keywords internal
-z_cor_onepass <- function(x, y) .Call(wrap__z_cor_onepass, x, y)
+arch_cor_onepass <- function(x, y) .Call(wrap__arch_cor_onepass, x, y)
 
 #' Compute the standard normal cumulative distribution function (CDF)
 #'
@@ -69,7 +69,7 @@ z_cor_onepass <- function(x, y) .Call(wrap__z_cor_onepass, x, y)
 #' @param log_p Logical; if TRUE, probabilities p are given as ln(p).
 #' @return A numeric vector of cumulative probabilities.
 #' @keywords internal
-pnorm_as <- function(z, lower_tail, log_p) .Call(wrap__pnorm_as, z, lower_tail, log_p)
+arch_pnorm_as <- function(z, lower_tail, log_p) .Call(wrap__arch_pnorm_as, z, lower_tail, log_p)
 
 #' Compute the Poisson probability mass function
 #'
@@ -82,7 +82,7 @@ pnorm_as <- function(z, lower_tail, log_p) .Call(wrap__pnorm_as, z, lower_tail, 
 #' @param log Logical; if TRUE, probabilities p are given as ln(p).
 #' @return A numeric vector of probability masses.
 #' @keywords internal
-ppois_di <- function(x, lambda, log_p) .Call(wrap__ppois_di, x, lambda, log_p)
+arch_ppois_di <- function(x, lambda, log_p) .Call(wrap__arch_ppois_di, x, lambda, log_p)
 
 #' Compute ln Γ(z) using Godfrey's Lanczos coefficient set (g=7, N=9).
 #'
@@ -109,9 +109,9 @@ ppois_di <- function(x, lambda, log_p) .Call(wrap__ppois_di, x, lambda, log_p)
 #' @param z A numeric (double) vector of positive values.
 #' @return A numeric vector containing the natural logarithm of the gamma function.
 #' @keywords internal
-lgamma_godfrey <- function(z) .Call(wrap__lgamma_godfrey, z)
+arch_lgamma_godfrey <- function(z) .Call(wrap__arch_lgamma_godfrey, z)
 
-dsc_rs <- function(treated, donors, n_quantiles, penalty, max_iter, tol) .Call(wrap__dsc_rs, treated, donors, n_quantiles, penalty, max_iter, tol)
+arch_dsc <- function(treated, donors, n_quantiles, penalty, max_iter, tol) .Call(wrap__arch_dsc, treated, donors, n_quantiles, penalty, max_iter, tol)
 
 #' Compute the sum of a numeric vector using Neumaier summation
 #'

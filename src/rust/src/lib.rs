@@ -1,9 +1,12 @@
 use extendr_api::prelude::*;
 
+// Not exported
+mod consts;
+mod ext;
+
 // Module declarations
 mod archive;
 mod causal;
-mod consts;
 mod descriptive;
 mod distributions;
 mod linear_models;
