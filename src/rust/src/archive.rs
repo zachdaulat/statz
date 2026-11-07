@@ -2,7 +2,6 @@
 
 use extendr_api::prelude::*;
 use faer::{ColRef, MatRef};
-use std::f64;
 
 // Registering the archived modules
 extendr_module! {
@@ -274,7 +273,7 @@ pub mod arch_distributions {
     pub fn arch_ppois_di(x: i32, lambda: f64, log_p: bool) -> f64 {
         // Calculated in regular space
         let cdf: f64 = (0..=x)
-            .map(|i| crate::distributions::dpois(i as f64, lambda, false))
+            .map(|i| crate::distribution::poisson::dpois(i as f64, lambda, false))
             .sum::<f64>();
 
         // Evaluating boolean for returning in log or regular space
@@ -367,7 +366,6 @@ pub mod arch_causal {
         col::AsColRef, linalg::solvers::SelfAdjointEigen, mat::AsMatRef, Col, ColMut, ColRef, Mat,
         MatRef, Side,
     };
-    use std::f64;
 
     extendr_module! {
         mod arch_causal;
@@ -475,7 +473,6 @@ pub mod arch_causal {
         // 4.2 Eigendecomposition of the normalized Gram matrix
         let eigen: SelfAdjointEigen<f64> = SelfAdjointEigen::new(G.as_mat_ref(), Side::Upper)
             .map_err(|_| Error::from("Error during Gram matrix eigendecomposition"))?;
-
         // Extracting decomposition outputs
         let evals: ColRef<f64> = eigen.S().column_vector();
         let evecs: MatRef<f64> = eigen.U();

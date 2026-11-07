@@ -1,3 +1,8 @@
+//! Causal inference data structures, estimators, and inference pipelines.
+//!
+//! Organizes contiguous panel data abstractions (`panel`) and Distributional
+//! Synthetic Controls (`dsc`) routines.
+
 pub mod dsc;
 pub mod panel;
 

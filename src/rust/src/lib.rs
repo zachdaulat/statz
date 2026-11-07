@@ -8,7 +8,8 @@ mod ext;
 mod archive;
 mod causal;
 mod descriptive;
-mod distributions;
+mod distribution;
+// mod distributions;
 mod linear_models;
 // Future modules
 // mod spatial;
@@ -19,6 +20,7 @@ extendr_module! {
     use archive;
     use causal;
     use descriptive;
-    use distributions;
+    use distribution;
+    // use distributions;
     use linear_models;
 }

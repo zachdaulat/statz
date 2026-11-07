@@ -6,7 +6,7 @@ use faer::Col;
 // Registering this module's functions
 extendr_module! {
     mod descriptive;
-    fn sum;
+    fn sum_r;
     fn mean;
     fn median;
     fn var;
@@ -27,18 +27,20 @@ extendr_module! {
 /// @param x A numeric (double) vector.
 /// @return The sum as a double.
 /// @keywords internal
-#[extendr]
-pub fn sum(x: &[f64]) -> f64 {
-    // Empty vector check
-    if x.is_empty() {
-        return 0.0;
-    };
+#[extendr(r_name = "sum")]
+pub fn sum_r(x: &[f64]) -> f64 {
+    sum(x.iter().copied())
+}
 
+/// Compute the sum of a numeric iterator using Neumaier summation.
+///
+/// Mitigates catastrophic cancellation and precision loss in large reductions.
+pub fn sum(x: impl IntoIterator<Item = f64>) -> f64 {
     // Neumaier summation algorithm
     let mut sum: f64 = 0.0;
     let mut c: f64 = 0.0;
 
-    for &y in x {
+    for y in x {
         let t: f64 = sum + y;
 
         // Accumulating lost bits
@@ -71,7 +73,7 @@ pub fn mean(x: &[f64]) -> Option<f64> {
     }
     let n: f64 = x.len() as f64;
 
-    Some(sum(x) / n)
+    Some(sum(x.iter().copied()) / n)
 }
 
 /// Compute the median of a numeric vector.
@@ -331,8 +333,11 @@ mod tests {
 
     #[test]
     fn test_sum() {
-        assert_eq!(sum(&[1.0, 2.0, 3.0]), 6.0);
-        assert_eq!(sum(&[]), 0.0);
+        assert_eq!(sum([1.0, 2.0, 3.0].iter().copied()), 6.0);
+
+        // Use a typed empty slice to satisfy the compiler
+        let empty: &[f64] = &[];
+        assert_eq!(sum(empty.iter().copied()), 0.0);
     }
 
     #[test]
